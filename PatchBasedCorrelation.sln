@@ -2,6 +2,11 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 2012
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "PatchBasedCorrelation", "PatchBasedCorrelation\PatchBasedCorrelation.vcxproj", "{AA81FEBC-6B67-404F-A957-3D2D6D6314D3}"
+	ProjectSection(ProjectDependencies) = postProject
+		{B89A0590-FC97-41C8-9C14-6BDF93DE3FDE} = {B89A0590-FC97-41C8-9C14-6BDF93DE3FDE}
+	EndProjectSection
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "CorrelationFilters", "CorrelationFilters\CorrelationFilters.vcxproj", "{B89A0590-FC97-41C8-9C14-6BDF93DE3FDE}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -13,6 +18,10 @@ Global
 		{AA81FEBC-6B67-404F-A957-3D2D6D6314D3}.Debug|Win32.Build.0 = Debug|Win32
 		{AA81FEBC-6B67-404F-A957-3D2D6D6314D3}.Release|Win32.ActiveCfg = Release|Win32
 		{AA81FEBC-6B67-404F-A957-3D2D6D6314D3}.Release|Win32.Build.0 = Release|Win32
+		{B89A0590-FC97-41C8-9C14-6BDF93DE3FDE}.Debug|Win32.ActiveCfg = Debug|Win32
+		{B89A0590-FC97-41C8-9C14-6BDF93DE3FDE}.Debug|Win32.Build.0 = Debug|Win32
+		{B89A0590-FC97-41C8-9C14-6BDF93DE3FDE}.Release|Win32.ActiveCfg = Release|Win32
+		{B89A0590-FC97-41C8-9C14-6BDF93DE3FDE}.Release|Win32.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

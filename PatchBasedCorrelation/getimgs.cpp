@@ -140,7 +140,6 @@ void IMGstruct::saveindices(int left_or_right) {
 				os << " ; ";
 				os << iterator->second;
 				os << " ; ";
-				//os.write((char*)&iterator->second,sizeof(iterator->second));
 			}
 			DRWN_LOG_MESSAGE("saved: " << leftusr);
 		}
@@ -155,8 +154,6 @@ void IMGstruct::saveindices(int left_or_right) {
 				os << " ; ";
 				os << iterator->second;
 				os << " ; ";
-				//os.write((char*)&iterator->first,sizeof(iterator->first));
-				//os.write((char*)&iterator->second,sizeof(iterator->second));
 			}
 			DRWN_LOG_MESSAGE("saved: " << leftidx);
 		}
@@ -168,8 +165,10 @@ void IMGstruct::saveindices(int left_or_right) {
 		} else {
 			for(it_usr iterator = userR.begin(); iterator != userR.end(); iterator++) {
 				// iterator->first = key, iterator->second = value
-				os.write((char*)&iterator->first,sizeof(iterator->first));
-				os.write((char*)&iterator->second,sizeof(iterator->second));
+				os << iterator->first;
+				os << " ; ";
+				os << iterator->second;
+				os << " ; ";
 			}
 			DRWN_LOG_MESSAGE("saved: " << rightusr);
 		}
@@ -180,8 +179,10 @@ void IMGstruct::saveindices(int left_or_right) {
 		} else {
 			for(it_idx iterator = userindex_R.begin(); iterator != userindex_R.end(); iterator++) {
 				// iterator->first = key, iterator->second = value
-				os.write((char*)&iterator->first,sizeof(iterator->first));
-				os.write((char*)&iterator->second,sizeof(iterator->second));
+				os << iterator->first;
+				os << " ; ";
+				os << iterator->second;
+				os << " ; ";
 			}	
 			DRWN_LOG_MESSAGE("saved: " << rightidx);
 		}
@@ -204,7 +205,6 @@ void IMGstruct::loadindices(int left_or_right) {
 				is >> colon;
 				is >> tmp2;
 				is >> colon;
-				//is.read((char*)&tmp2,sizeof(tmp2));
 				userL[tmp] = tmp2; 
 				c = is.peek();
 			}
@@ -217,8 +217,6 @@ void IMGstruct::loadindices(int left_or_right) {
 		} else {
 			c = is.peek();
 			while(!is.eof()) {
-				//is.read((char*)&tmp2,sizeof(tmp2));
-				//is.read((char*)&tmp3,sizeof(tmp3));
 				is >> tmp2;
 				is >> colon;
 				is >> tmp3;
@@ -236,8 +234,10 @@ void IMGstruct::loadindices(int left_or_right) {
 		} else {
 			c = is.peek();
 			while(!is.eof()) {
-				is.read((char*)&tmp,sizeof(tmp));
-				is.read((char*)&tmp2,sizeof(tmp2));
+				is >> tmp;
+				is >> colon;
+				is >> tmp2;
+				is >> colon;
 				userR[tmp] = tmp2; 
 				c = is.peek();
 			}
@@ -250,8 +250,10 @@ void IMGstruct::loadindices(int left_or_right) {
 		} else {
 			c = is.peek();
 			while(!is.eof()) {
-				is.read((char*)&tmp2,sizeof(tmp2));
-				is.read((char*)&tmp3,sizeof(tmp3));
+				is >> tmp2;
+				is >> colon;
+				is >> tmp3;
+				is >> colon;
 				userindex_R[tmp2] = tmp3;
 				c = is.peek();
 			}

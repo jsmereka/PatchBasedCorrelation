@@ -2,6 +2,7 @@
 //
 
 #include "getimgs.h"
+#include "fftw3.h"
 
 class FILTstruct {
 private:
