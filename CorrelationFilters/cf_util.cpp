@@ -1,5 +1,5 @@
-#include "cf_util.h"
-#include <fftw3.h>
+#include "stdafx.h"
+
 
 /**
   
@@ -31,7 +31,7 @@ int get_rank(MatrixXd &signal) {
   
   Put 2-d data into the frequency domain
 
-  @author   Vishnu Naresh Boddetti
+  @author   Vishnu Naresh Boddetti & Jonathon M. Smereka
   @version  04-03-2013
 
   @param    img			the 2-d signal in spatial domain
@@ -66,21 +66,22 @@ void fft2_image_scalar(MatrixXd &img, MatrixXcd &img_freq, int siz1, int siz2) {
 	plan = fftw_plan_dft_2d(siz1,siz2,mat1,mat2,FFTW_FORWARD, FFTW_ESTIMATE);	
 
 	fftw_execute(plan);		
-	MatrixXcd temp(siz1,siz2);
+	MatrixXd temp1(siz1,siz2), temp2(siz1,siz2);
 
 	count = 0;
 	for (int i=0;i<siz1;i++){
 		for (int j=0;j<siz2;j++){				
-			temp(i,j).real() = mat2[count][0];
-			temp(i,j).imag() = mat2[count][1];
+			temp1(i,j) = mat2[count][0];
+			temp2(i,j) = mat2[count][1];
 			count++;
 		}
 	}
-
-	img_freq = temp;
+	img_freq.resizeLike(temp1);
+	img_freq.real() = temp1;
+	img_freq.imag() = temp2;
 	fftw_destroy_plan(plan);
-	delete mat1;
-	delete mat2;
+	delete [] mat1;
+	delete [] mat2;
 }
 
 
@@ -89,7 +90,7 @@ void fft2_image_scalar(MatrixXd &img, MatrixXcd &img_freq, int siz1, int siz2) {
   
   Put 2-d data into spatial domain from frequency domain
 
-  @author   Vishnu Naresh Boddetti
+  @author   Vishnu Naresh Boddetti & Jonathon M. Smereka
   @version  04-03-2013
 
   @param    img			the 2-d signal in spatial domain
@@ -132,6 +133,99 @@ void ifft2_image_scalar(MatrixXd &img, MatrixXcd &img_freq) {
 	}
 
 	fftw_destroy_plan(plan);
-	delete mat1;
-	delete mat2;
+	delete [] mat1;
+	delete [] mat2;
+}
+
+
+
+/**
+  
+  Put 1-d data into the frequency domain
+
+  @author   Vishnu Naresh Boddetti & Jonathon M. Smereka
+  @version  04-03-2013
+
+  @param    img			the 1-d signal in spatial domain
+  @param    img_freq	the 1-d signal in frequency domain
+  @param    siz1		size
+  
+  @return   passed by ref to return data in img_freq
+
+*/
+void fft2_signal_scalar(VectorXd &img, VectorXcd &img_freq, int siz1) {
+	int N = img.size();
+
+	fftw_plan plan;
+
+	fftw_complex *mat1;
+	fftw_complex *mat2;
+
+	mat1 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex)*siz1);
+	mat2 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex)*siz1);
+
+	for (int i=0;i<N;i++){
+		mat1[i][0] = img(i);
+		mat1[i][1] = 0;
+	}
+
+	plan = fftw_plan_dft_1d(siz1,mat1,mat2,FFTW_FORWARD, FFTW_ESTIMATE);	
+
+	fftw_execute(plan);		
+	VectorXd temp1(siz1), temp2(siz1);
+
+	for (int i=0;i<siz1;i++){			
+		temp1(i) = mat2[i][0];
+		temp2(i) = mat2[i][1];
+	}
+
+	img_freq.resizeLike(temp1);
+	img_freq.real() = temp1;
+	img_freq.imag() = temp2;
+	fftw_destroy_plan(plan);
+	delete [] mat1;
+	delete [] mat2;
+}
+
+
+
+/**
+  
+  Put 1-d data into spatial domain from frequency domain
+
+  @author   Vishnu Naresh Boddetti & Jonathon M. Smereka
+  @version  04-03-2013
+
+  @param    img			the 1-d signal in spatial domain
+  @param    img_freq	the 1-d signal in frequency domain
+  
+  @return   passed by ref to return data in img
+
+*/
+void ifft2_signal_scalar(VectorXd &img, VectorXcd &img_freq) {
+	int siz1 = img_freq.size();
+
+	fftw_plan plan;
+
+	fftw_complex *mat1;
+	fftw_complex *mat2;
+
+	mat1 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex)*siz1);
+	mat2 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex)*siz1);
+
+	for (int i=0;i<siz1;i++){
+		mat1[i][0] = img_freq(i).real();
+		mat1[i][1] = img_freq(i).imag();
+	}
+
+	plan = fftw_plan_dft_1d(siz1,mat1,mat2,FFTW_BACKWARD, FFTW_ESTIMATE);
+	fftw_execute(plan);
+
+	for (int i=0;i<siz1;i++){
+		img(i) = mat2[i][0]/(siz1);
+	}
+
+	fftw_destroy_plan(plan);
+	delete [] mat1;
+	delete [] mat2;
 }

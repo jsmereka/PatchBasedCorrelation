@@ -12,8 +12,10 @@
 #include <windows.h>
 
 #include "cf_def.h"
+#include "cf_util.h"
 
 // TODO: reference additional headers your program requires here
 #include <iostream>
 #include <fftw3.h>
 #include <complex>
+#include <Eigen/Dense>

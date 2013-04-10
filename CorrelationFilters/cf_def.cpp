@@ -1,5 +1,4 @@
-#include "cf_def.h"
-#include "cf_util.h"
+#include "stdafx.h"
 #include <algorithm>
 
 
@@ -118,7 +117,7 @@ bool filter1d::check_rank(signal1d &signal, bool auth) {
 */
 void filter1d::addtoX(signal1d &signal) {
 	// put into matrix
-	if(X.sig.rows() == 0 || X.sig.cols() == 0) {
+	if(X.sig.size() == 0 || X.sig.cols() == 0) {
 		X.sig.resize(signal.sig.rows()+signal.sig.cols(),1);
 	} else {
 		X.sig.conservativeResize(X.sig.rows(),X.sig.cols()+1);
@@ -127,19 +126,22 @@ void filter1d::addtoX(signal1d &signal) {
 		X.sig(i,X.sig.cols()) = signal.sig(i);
 	}
 	// put into matrix
-	if(signal.sig_freq.rows() == 0 || signal.sig_freq.cols() == 0) {
-		// TODO
+	if(signal.sig_freq.size() == 0) {
 		// compute fft
-		//fft2_image_scalar(signal.sig, signal.sig_freq, signal.sig.rows(), signal.sig.cols());
+		fft2_signal_scalar(signal.sig, signal.sig_freq, signal.sig.size());
 	}
 	if(X.sig_freq.rows() == 0 || X.sig_freq.cols() == 0) {
 		X.sig_freq.resize(signal.sig_freq.rows()+signal.sig_freq.cols(),1);
 	} else {
 		X.sig_freq.conservativeResize(X.sig_freq.rows(),X.sig_freq.cols()+1);
 	}
+	VectorXd temp1(signal.sig_freq.rows()), temp2(signal.sig_freq.rows());
+
+	temp1 = signal.sig_freq.real();
+	temp2 = signal.sig_freq.imag();
+
 	for(int i=0; i<signal.sig_freq.rows(); i++) {
-		X.sig_freq(i,X.sig_freq.cols()).real() = signal.sig_freq(i).real();
-		X.sig_freq(i,X.sig_freq.cols()).imag() = signal.sig_freq(i).imag();
+		X.sig_freq(i,X.sig_freq.cols()) = std::complex<double>(temp1(i),temp2(i));
 	}
 }
 
@@ -326,11 +328,15 @@ void filter2d::addtoX(signal2d &signal) {
 	} else {
 		X.sig_freq.conservativeResize(X.sig_freq.rows(),X.sig_freq.cols()+1);
 	}
+	MatrixXd temp1(signal.sig_freq.rows(),signal.sig_freq.cols()), temp2(signal.sig_freq.rows(),signal.sig_freq.cols());
+	
+	temp1 = signal.sig_freq.real();
+	temp2 = signal.sig_freq.imag();
+	
 	ct = 0;
 	for(int i=0; i<signal.sig_freq.rows(); i++) {
 		for(int j=0; j<signal.sig_freq.cols(); j++) {
-			X.sig_freq(ct,X.sig_freq.cols()).real() = signal.sig_freq(i,j).real();
-			X.sig_freq(ct,X.sig_freq.cols()).imag() = signal.sig_freq(i,j).imag();
+			X.sig_freq(ct,X.sig_freq.cols()) = std::complex<double>(temp1(i,j),temp2(i,j));
 			ct++;
 		}
 	}

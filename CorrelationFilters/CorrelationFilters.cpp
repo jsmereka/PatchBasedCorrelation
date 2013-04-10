@@ -4,7 +4,7 @@
 #include "stdafx.h"
 
 class OTSDF : public filter2d {
-	//
+	double alpha, beta;
 };
 
 

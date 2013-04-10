@@ -51,13 +51,13 @@
       <WarningLevel>Level3</WarningLevel>
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>C:\darwin\external;C:\darwin\external\eigen3;C:\darwin\include;C:\darwin\external\opencv\build\include\opencv;C:\darwin\external\opencv\build\include;C:\fftw3.3.3.64;</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\darwin\external;C:\darwin\external\eigen3;C:\darwin\include;C:\darwin\external\opencv\build\include\opencv;C:\darwin\external\opencv\build\include;C:\fftw3.3.3.32;</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;drwnBased.lib;drwnIOd.lib;drwnMLd.lib;drwnPGMd.lib;opencv_core243d.lib;opencv_imgproc243d.lib;opencv_highgui243d.lib;libfftw3f-3.lib;libfftw3-3.lib;libfftw3l-3.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>C:\darwin\bin;C:\darwin\external\opencv\build\x86\vc10\lib;C:\fftw3.3.3.64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>C:\darwin\bin;C:\darwin\external\opencv\build\x86\vc10\lib;C:\fftw3.3.3.32;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -80,6 +80,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <Text Include="ReadMe.txt" />
+    <Text Include="TODO.txt" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="buildfilter.h" />
