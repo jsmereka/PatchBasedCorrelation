@@ -28,9 +28,6 @@
     <ClInclude Include="cf_def.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="cf_util.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
@@ -43,9 +40,6 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="cf_def.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="cf_util.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

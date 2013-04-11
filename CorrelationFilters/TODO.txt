@@ -2,8 +2,7 @@
   Base Classes
 ----------------
 
-- Finish General filter1d & filter2d classes (probably would work best with a template, but will do that later, need a working lib, not a perfect one)
-- Extend to filter3d class
+- Extend filter class so that 3 dimensions works
 
 
 

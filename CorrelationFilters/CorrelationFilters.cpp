@@ -3,8 +3,10 @@
 
 #include "stdafx.h"
 
-class OTSDF : public filter2d {
+template <class T>
+class OTSDF : public filter<T> {
 	double alpha, beta;
+	void trainfilter(){ };
 };
 
 
