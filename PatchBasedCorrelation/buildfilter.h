@@ -26,7 +26,8 @@ private:
 
 	string leftname, rightname; // save/load names
 
-	OTSDF<MatrixXd> thefilt;
+	filter<MatrixXd> *filt;
+
 
 public:
 	FILTstruct();
