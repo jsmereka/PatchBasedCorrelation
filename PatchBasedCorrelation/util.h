@@ -1,13 +1,12 @@
 // util.h : class and functions for use throughout program
 //
 
+#include "stdafx.h"
+
 // c++ standard headers
-#include <cstdlib>
-#include <cstdio>
 #include <dirent.h>
 #include <direct.h>
 #include <iomanip>
-#include <vector>
 
 // darwin library headers
 #include "drwnBase.h"

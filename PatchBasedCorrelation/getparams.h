@@ -1,10 +1,7 @@
 // getparams.h : class and functions for loading up parameters
 //
 
-// c++ standard headers
-#include <cstdlib>
-#include <cstdio>
-#include <vector>
+#include "stdafx.h"
 
 // darwin library headers
 #include "drwnBase.h"

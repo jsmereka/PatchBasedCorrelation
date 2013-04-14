@@ -1,13 +1,10 @@
 // getimgs.h : class and functions for loading up the images
 //
 
-// c++ standard headers
-#include <cstdlib>
-#include <cstdio>
-#include <dirent.h>
-#include <direct.h>
-#include <iomanip>
-#include <vector>
+// project libraries
+#include "stdafx.h"
+#include "getparams.h"
+#include "util.h"
 #include <map>
 
 // darwin library headers
@@ -15,8 +12,6 @@
 #include "drwnIO.h"
 #include "drwnVision.h"
 
-#include "util.h"
-#include "getparams.h"
 
 using namespace cv;
 

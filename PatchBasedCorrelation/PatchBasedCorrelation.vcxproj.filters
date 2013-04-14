@@ -16,7 +16,6 @@
   </ItemGroup>
   <ItemGroup>
     <Text Include="ReadMe.txt" />
-    <Text Include="TODO.txt" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="stdafx.h">
@@ -25,16 +24,16 @@
     <ClInclude Include="targetver.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="getparams.h">
+    <ClInclude Include="buildfilter.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="getimgs.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="util.h">
+    <ClInclude Include="getparams.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="buildfilter.h">
+    <ClInclude Include="util.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
@@ -45,16 +44,16 @@
     <ClCompile Include="PatchBasedCorrelation.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="getparams.cpp">
+    <ClCompile Include="buildfilter.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="getimgs.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="util.cpp">
+    <ClCompile Include="getparams.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="buildfilter.cpp">
+    <ClCompile Include="util.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

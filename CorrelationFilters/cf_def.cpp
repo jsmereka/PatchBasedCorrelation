@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "CorrelationFilters.h"
 #include <algorithm>
 
 
@@ -8,6 +9,7 @@
 template <class T>
 filter<T>::filter() {
 	auth_count = 0; imp_count = 0;
+	input_row = 0; input_col = 0;
 }
 
 
@@ -17,8 +19,9 @@ filter<T>::filter() {
 */
 template <class T>
 filter<T>::~filter() {
-	X.sig.resize(0,0);
-	X.sig_freq.resize(0,0);
+	H.resize(0,0);
+	X.resize(0,0);
+	X_hat.resize(0,0);
 	U.resize(0);
 }
 
@@ -48,7 +51,7 @@ bool filter<T>::add_auth(T &newsig) {
   Adds an imposter signal to those used to train the filter
 
   @author   Jonathon M. Smereka
-  @version  04-03-2013
+  @version  04-10-2013
 
   @param    newsig		the 1-d/2-d signal that is to be added
   
@@ -67,7 +70,7 @@ bool filter<T>::add_imp(T &newsig) {
   Check the matrix rank against the other authentic or imposter signals
 
   @author   Jonathon M. Smereka
-  @version  04-03-2013
+  @version  04-13-2013
 
   @param    signal		the 1-d/2-d signal that is to be added
   @param	auth		1 = authentic, 0 = imposter
@@ -83,6 +86,8 @@ bool filter<T>::check_rank(T const& signal, bool auth) {
 			rank = get_rank(signal);
 		}
 		if(rank > 0) {
+			input_row = signal.rows();
+			input_col = signal.cols();
 			addtoX(signal);
 			addtoU(auth);
 			return true;
@@ -91,6 +96,12 @@ bool filter<T>::check_rank(T const& signal, bool auth) {
 		// put signal into matrix
 		MatrixXd combsignal = X;
 		combsignal.conservativeResize(X.rows(),X.cols()+1);
+
+		// make sure it's the same size as the other signals
+		if(X.rows() != (signal.rows()*signal.cols())) {
+			signal = zero_pad(signal, input_row, input_col, 1);
+		}
+
 		if(signal.cols() == 1) {
 			combsignal.col(X.cols()) = signal.data(); // i wonder if this will work
 		} else {
@@ -256,7 +267,7 @@ void filter<T>::fft_scalar(T const& sig, MatrixXcd &sig_freq, int siz1, int siz2
 
 	count = 0;
 	for(int i=0; i<siz1; i++) {
-		for(int j=0; j<siz2; j++){				
+		for(int j=0; j<siz2; j++) {				
 			temp1(i,j) = mat2[count][0];
 			temp2(i,j) = mat2[count][1];
 			count++;
@@ -362,4 +373,92 @@ int filter<T>::get_rank(MatrixXd const& signal) {
 		}
 	}
 	return rank;
+}
+
+
+
+/**
+  
+  Zero pad or crop the signal based on the input size parameters, simply using conserative resize won't work (uninitialized matrix elements)
+
+  @author   Jonathon M. Smereka
+  @version  04-13-2013
+
+  @param    signal		the 1-d/2-d signal to be checked
+  @param	siz1		final number of rows for the output
+  @param	siz2		final number of columns for the output
+  @param	center		pad/cut so the signal is centered
+  
+  @return   signal in selected size window
+
+*/
+template <class T>
+T filter<T>::zero_pad(T const& signal, int siz1, int siz2, bool center) {
+	int M = signal.rows();
+	int N = signal.cols();
+
+	if(M == siz1 && N == siz2) {
+		return signal;
+	} else {
+		T result;
+		MatrixXd temp;
+		int str, stc;
+
+		if(M == 1 || N == 1) {
+			MatrixXd newsignal(max(M,N),1);
+			// put into matrix (1-d matrix is used differently than 1-d vector)
+			newsignal.col(0) = signal.data(); // i wonder if this will work
+		} else {
+			MatrixXd newsignal = signal;
+		}
+		// Perform any cropping operations
+		if(siz1 < M || siz2 < N) {
+			if(center) { // cut from the center
+				str = floor(abs(siz1 - M)/2);
+				stc = floor(abs(siz2 - N)/2);
+			} else {
+				str = 0; stc = 0;
+			}
+			if(siz1 < M && siz2 < N) { // crop both rows and columns
+				temp.resize(siz1,siz2);
+				temp = newsignal.block<siz1,siz2>(str,stc);
+				M = siz1; N = siz2;
+			} else if(siz1 < M) {
+				temp.resize(siz1,max(N,siz2));
+				temp.setZero();
+				M = siz1;
+				temp = newsignal.block<siz1,N>(str,stc);
+			} else if(siz2 < N) {
+				temp.resize(max(M,siz1),siz2);
+				temp.setZero();
+				N = siz2;
+				temp = newsignal.block<M,siz2>(str,stc);
+			}
+		} else {
+			temp.setZero(siz1,siz2);
+		}
+		// Perform any padding operations
+		if(siz1 > M || siz2 > N) {
+			if(center) { // pad from the center
+				str = floor((siz1 - M)/2);
+				stc = floor((siz2 - N)/2);
+			}
+			if(siz1 > M && siz2 > N) { // pad both rows and columns
+				temp.conservativeResize(siz1,siz2);
+			} else if(siz1 > M) {
+				temp.conservativeResize(siz1,N);
+			} else if(siz2 > N) {
+				temp.conservativeResize(M,siz2);
+			}
+			temp.block<M,N>(str,stc) = newsignal;
+		}
+		// convert temp back to T
+		result.resize(siz1,siz2);
+		if(siz1 == 1 || siz2 == 1) {
+			result = temp.data(); // i wonder if this will work
+		} else {
+			result = temp;
+		}
+		return result;
+	}
 }

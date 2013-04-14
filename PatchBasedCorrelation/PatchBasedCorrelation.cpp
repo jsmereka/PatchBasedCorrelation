@@ -1,6 +1,8 @@
 // PatchBasedCorrelation.cpp : Defines the entry point for the console application.
 //
 
+// project libraries
+#include "stdafx.h"
 #include "buildfilter.h"
 
 static Parameters Params;

@@ -1,8 +1,16 @@
 // buildfilter.h : class and functions for building filters
 //
 
+// project libraries
 #include "getimgs.h"
-#include "fftw3.h"
+#include <fftw3.h>
+#include <complex>
+#include <Eigen/Dense>
+#include <Eigen/Core>
+
+// correlation filter library
+#include <CorrelationFilters.h>
+
 
 class FILTstruct {
 private:
@@ -17,6 +25,8 @@ private:
 	bool configlock; // configuration lock to ensure parameters are set
 
 	string leftname, rightname; // save/load names
+
+	OTSDF<MatrixXd> thefilt;
 
 public:
 	FILTstruct();

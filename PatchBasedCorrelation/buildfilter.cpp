@@ -1,13 +1,11 @@
-
+// project libraries
+#include "stdafx.h"
 #include "buildfilter.h"
 
 
 // Constructor
 FILTstruct::FILTstruct() {
-
 	configlock = true;
-
-
 }
 
 

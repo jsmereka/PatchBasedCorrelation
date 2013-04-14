@@ -1,5 +1,5 @@
-
-
+// project libraries
+#include "stdafx.h"
 #include "getparams.h"
 
 

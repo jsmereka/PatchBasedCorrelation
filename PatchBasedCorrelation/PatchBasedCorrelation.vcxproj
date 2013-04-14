@@ -11,7 +11,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <ProjectGuid>{AA81FEBC-6B67-404F-A957-3D2D6D6314D3}</ProjectGuid>
+    <ProjectGuid>{EACF4B4D-8C76-4718-BAE2-6E1455F5D2D9}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>PatchBasedCorrelation</RootNamespace>
   </PropertyGroup>
@@ -47,40 +47,42 @@
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
-      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <PrecompiledHeader>Use</PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>C:\darwin\external;C:\darwin\external\eigen3;C:\darwin\include;C:\darwin\external\opencv\build\include\opencv;C:\darwin\external\opencv\build\include;C:\fftw3.3.3.32;</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\Jon\PatchBasedCorrelation\CorrelationFilters;C:\darwin\external;C:\darwin\external\eigen3;C:\darwin\include;C:\darwin\external\opencv\build\include\opencv;C:\darwin\external\opencv\build\include;C:\fftw3.3.3.32;</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;drwnBased.lib;drwnIOd.lib;drwnMLd.lib;drwnPGMd.lib;opencv_core243d.lib;opencv_imgproc243d.lib;opencv_highgui243d.lib;libfftw3f-3.lib;libfftw3-3.lib;libfftw3l-3.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>C:\darwin\bin;C:\darwin\external\opencv\build\x86\vc10\lib;C:\fftw3.3.3.32;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;drwnBased.lib;drwnIOd.lib;drwnMLd.lib;drwnPGMd.lib;opencv_core243d.lib;opencv_imgproc243d.lib;opencv_highgui243d.lib;libfftw3f-3.lib;libfftw3-3.lib;libfftw3l-3.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
-      <PrecompiledHeader>
-      </PrecompiledHeader>
+      <PrecompiledHeader>Use</PrecompiledHeader>
       <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
+      <AdditionalIncludeDirectories>C:\Users\Jon\PatchBasedCorrelation\CorrelationFilters;C:\darwin\external;C:\darwin\external\eigen3;C:\darwin\include;C:\darwin\external\opencv\build\include\opencv;C:\darwin\external\opencv\build\include;C:\fftw3.3.3.32;</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
+      <AdditionalLibraryDirectories>C:\darwin\bin;C:\darwin\external\opencv\build\x86\vc10\lib;C:\fftw3.3.3.32;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;drwnBased.lib;drwnIOd.lib;drwnMLd.lib;drwnPGMd.lib;opencv_core243d.lib;opencv_imgproc243d.lib;opencv_highgui243d.lib;libfftw3f-3.lib;libfftw3-3.lib;libfftw3l-3.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <Text Include="ReadMe.txt" />
-    <Text Include="TODO.txt" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="buildfilter.h" />
@@ -95,8 +97,21 @@
     <ClCompile Include="getimgs.cpp" />
     <ClCompile Include="getparams.cpp" />
     <ClCompile Include="PatchBasedCorrelation.cpp" />
-    <ClCompile Include="stdafx.cpp" />
+    <ClCompile Include="stdafx.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
+    </ClCompile>
     <ClCompile Include="util.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CorrelationFilters\CorrelationFilters.vcxproj">
+      <Project>{b89a0590-fc97-41c8-9c14-6bdf93de3fde}</Project>
+      <Private>true</Private>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+      <CopyLocalSatelliteAssemblies>false</CopyLocalSatelliteAssemblies>
+      <LinkLibraryDependencies>true</LinkLibraryDependencies>
+      <UseLibraryDependencyInputs>false</UseLibraryDependencyInputs>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

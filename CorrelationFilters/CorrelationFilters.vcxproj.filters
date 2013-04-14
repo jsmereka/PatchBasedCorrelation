@@ -25,7 +25,7 @@
     <ClInclude Include="targetver.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="cf_def.h">
+    <ClInclude Include="CorrelationFilters.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

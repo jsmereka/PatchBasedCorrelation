@@ -1,6 +1,9 @@
-
-
+// project libraries
+#include "stdafx.h"
 #include "getimgs.h"
+#include <dirent.h>
+#include <direct.h>
+#include <iomanip>
 #include <iostream>
 #include <algorithm>
 
