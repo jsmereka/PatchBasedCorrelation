@@ -25,6 +25,7 @@ public:
 	typedef Eigen::Matrix<typename T::RealScalar, Eigen::Dynamic, Eigen::Dynamic> TMat;
 	typedef Eigen::Matrix<std::complex<typename T::RealScalar>, Eigen::Dynamic, 1> VecCplx;
 	typedef Eigen::Matrix<typename T::RealScalar, Eigen::Dynamic, 1> TVec;
+	typedef typename T::Scalar TVar;
 
 private:
 	bool check_rank(T signal, bool auth);			// check the matrix rank against the authentic or imposter signals
@@ -150,7 +151,7 @@ public:
 template <class T>
 void OTSDF<T>::trainfilter() {
 	if(auth_count != 0 || imp_count != 0) {
-		int d = input_row * input_col;
+		//int d = input_row * input_col;
 
 		// ONV
 		if(alpha != 0) {
@@ -254,8 +255,10 @@ bool filter<T>::check_rank(T signal, bool auth) {
 			TMat combsignal = X;
 			combsignal.conservativeResize(X.rows(),X.cols()+1);
 
+			// TODO: fix vectorization
 			// vectorize
-			double *arrayd = signal.template data();
+
+			double *arrayd = (signal.template data());
 
 			for(int j=0; j<sz; j++) {
 				combsignal(j,X.cols()) = arrayd[j];
@@ -299,9 +302,11 @@ void filter<T>::addtoX(T const& signal) {
 	} else {
 		X.conservativeResize(X.rows(),X.cols()+1);
 	}
-
+	// TODO: fix vectorization
 	// vectorize
 	const double *arrayd = signal.template data();
+	//double arrayd[N*M];
+	//Eigen::Map<T>(arrayd, N, M) = signal.template cast<double>();
 
 	for(int j=0; j<sz; j++) {
 		X(j,X.cols()-1) = arrayd[j];
@@ -402,7 +407,7 @@ void filter<T>::fft_scalar(T const& sig, MatCplx &sig_freq, int siz1, int siz2) 
 
 	mat1 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex)*siz1*siz2);
 	mat2 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex)*siz1*siz2);
-
+	// TODO: fix vectorization
 	const double *arrayd = sig.template data();
 	//double arrayd[N*M];
 	//Eigen::Map<T>(arrayd, N, M) = sig.template cast<double>();
