@@ -1,30 +1,12 @@
-#include "stdafx.h"
+#include <iostream>
+#include <fftw3.h>
+#include <complex>
+#include <Eigen/Dense>
+#include <Eigen/Core>
 #include "CorrelationFilters.h"
 #include <algorithm>
 
-
-/*
-	Constructor
-*/
-template <class T>
-filter<T>::filter() {
-	auth_count = 0; imp_count = 0;
-	input_row = 0; input_col = 0;
-}
-
-
-
-/*
-	Destructor
-*/
-template <class T>
-filter<T>::~filter() {
-	H.resize(0,0);
-	X.resize(0,0);
-	X_hat.resize(0,0);
-	U.resize(0);
-}
-
+using namespace Eigen;
 
 
 /**

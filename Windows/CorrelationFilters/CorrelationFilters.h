@@ -1,11 +1,9 @@
-#include "stdafx.h"
+#include <iostream>
+#include <fftw3.h>
+#include <complex>
+#include <Eigen/Dense>
+#include <Eigen/Core>
 #include <math.h>
-
-#ifdef COMPILE_LIB
-#define LIBEXP __declspec(dllexport)
-#else
-#define LIBEXP __declspec(dllimport)
-#endif
 
 
 using namespace Eigen;
@@ -20,7 +18,7 @@ using namespace Eigen;
 
 */
 template <class T>									// designed for Matrix or Vector classes (non-complex)
-class LIBEXP filter {
+class filter {
 private:
 	bool check_rank(T const& signal, bool auth);	// check the matrix rank against the authentic or imposter signals
 	int get_rank(MatrixXd const& signal);			// get the matrix rank and return it as an int
@@ -40,12 +38,23 @@ protected:
 	void ifft_scalar(T &sig, MatrixXcd const& sig_freq);					// get signal from frequency domain
 
 public:
-	filter();
-	~filter();
+	filter(){
+		// initialize counts
+		auth_count = 0; imp_count = 0;
+		input_row = 0; input_col = 0;
+	}
+	virtual ~filter() {
+		// resize to zero to release memory
+		H_hat.resize(0,0);
+		X.resize(0,0);
+		X_hat.resize(0,0);
+		U.resize(0);;
+	}
 
-	MatrixXcd H_hat;								// the fitler itself in the frequency domain
 
-	virtual void trainfilter() = 0;			// train the filter - this varies with each filter type
+	MatrixXcd H_hat;								// the filter itself in the frequency domain
+
+	virtual void trainfilter() = 0;					// train the filter - this varies with each filter type
 
 	int auth_count, imp_count;						// authentic and impostor counts
 
@@ -78,7 +87,7 @@ public:
 */
 
 template <class T>
-class LIBEXP OTSDF : public filter<T> {
+class OTSDF : public filter<T> {
 private:
 	VectorXcd P, D, S;								// Matrices for ONV, ACE, and ASM (dxd diagonal matrix where d = dimension, but set as vectors for efficient computation)
 
