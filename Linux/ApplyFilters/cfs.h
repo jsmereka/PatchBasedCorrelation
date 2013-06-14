@@ -8,7 +8,6 @@
 #include <algorithm>
 #include <math.h>
 #include <fftw3.h>
-#include <memory>
 
 /**
 
@@ -24,8 +23,9 @@ public:
 	typedef Eigen::Matrix<std::complex<typename T::RealScalar>, Eigen::Dynamic, Eigen::Dynamic> MatCplx;
 	typedef Eigen::Matrix<typename T::RealScalar, Eigen::Dynamic, Eigen::Dynamic> TMat;
 	typedef Eigen::Matrix<std::complex<typename T::RealScalar>, Eigen::Dynamic, 1> VecCplx;
+	typedef Eigen::Matrix<std::complex<typename T::RealScalar>, 1, Eigen::Dynamic> RowVecCplx;
 	typedef Eigen::Matrix<typename T::RealScalar, Eigen::Dynamic, 1> TVec;
-	typedef typename T::Scalar TVar;
+	typedef typename T::RealScalar TVar;
 
 private:
 	bool check_rank(T signal, bool auth);			// check the matrix rank against the authentic or imposter signals
@@ -64,6 +64,7 @@ public:
 		X_hat.resize(0,0);
 		U.resize(0);
 	}
+
 
 
 	bool add_auth(T const& newsig);						// add an authentic class example for training
@@ -110,11 +111,13 @@ private:
 	using filter<T>::input_col;
 	using filter<T>::auth_count;
 	using filter<T>::imp_count;
-	typename filter<T>::VecCplx P, D, S;						// Matrices for ONV, ACE, and ASM (dxd diagonal matrix where d = dimension, but set as vectors for efficient computation)
+	using filter<T>::X_hat;
+
+	typename filter<T>::VecCplx TT;					// diagonal matrix (in our case a vector) containing ASM, ONV, and ACE components
 
 public:
 	// constructors
-	OTSDF(double alph, double bet, double gam) {				// initializes all three parameters
+	OTSDF(double alph, double bet, double gam) {	// initializes all three parameters
 		alpha = alph; beta = bet; gamma = gam;
 	}
 	OTSDF(double lam) {								// initializes filter as a trade-off between ACE and ONV, ignoring ASM
@@ -125,7 +128,7 @@ public:
 	}
 	// destructor
 	~OTSDF() {
-		P.resize(0,0); D.resize(0,0); S.resize(0,0);
+		TT.resize(0);
 	}
 
 	double alpha, beta, gamma;						// training parameters
@@ -141,8 +144,19 @@ public:
 
   Trains the filter as an OTSDF
 
+  h = T^(-1) * X * (X^(+) * T^(-1) * X)^(-1) * U
+  T = alpha * P + beta * D + gamma * S
+	or
+  T = lambda * D + (1 - lambda) * P
+
+  h = derived filter, complex with dimension (d x 1), d = input_row * input_col, for 2D signals, it will be reshaped to (input_row x input_col)
+  X = column matrix of input data, complex matrix with dimension (d x N), N = auth_count + imp_count
+  D = diagonal matrix containing average power spectral density of the training data, complex matrix with dimension (d x d), diagonal matrix Di = Xi * Conj(Xi) = power spectrum of xi, D = 1/d * SUM{ Di }
+  S = diagonal matrix containing similarity in correlation planes to the true class mean, complex matrix with dimension (d x d), S = 1/(N*d) * SUM{ (Xi - mean(Xi)) * Conj(Xi - mean(Xi)) }
+  P = diagonal matrix containing the power spectral density of the input noise, complex matrix with dimension (d x d), P = constant * identity matrix for additive white noise
+
   @author   Jonathon M. Smereka
-  @version  04-13-2013
+  @version  06-14-2013
 
   @return   nothing
 
@@ -150,23 +164,46 @@ public:
 // TODO implement filter training
 template <class T>
 void OTSDF<T>::trainfilter() {
-	if(auth_count != 0 || imp_count != 0) {
-		//int d = input_row * input_col;
+	int N = auth_count + imp_count;
+	if(N > 0) {
+		int d = input_row * input_col;
 
-		// ONV
-		if(alpha != 0) {
-			//
-		}
-		// ACE
-		if(beta != 0) {
-			//
-		}
-		// ASM
-		if(gamma != 0) {
-			//
+		// Compute T matrix, labeled as TT cause T is the template type
+		TT.resize(d);
+		TT.real().setZero(); TT.imag().setZero();
+
+		if(alpha != 0.0 || beta != 0.0 || gamma != 0.0) {
+			TT.real().setOnes(); // if no alpha, beta, or gamma, then filter = MVSDF under white noise = ECPSDF
+		} else {
+			typename filter<T>::VecCplx tmp(d);
+			typename filter<T>::RowVecCplx vec_of_ones(d); vec_of_ones.real().setOnes(); vec_of_ones.imag().setOnes();
+
+			// ACE
+			if(beta != 0) { // if only beta, then filter = MACE
+				// diagonal matrix Di = Xi * Conj(Xi) = power spectrum of xi, D = 1/d * SUM{ Di }
+				TT = X_hat.cwiseProduct(X_hat.conjugate()).lazyProduct(vec_of_ones);
+				TT.real() = TT.real() * beta;
+				TT.imag() = TT.imag() * beta;
+			}
+			// ASM
+			if(gamma != 0) { // if only gamma, then filter = constrained MACH
+				//
+				tmp = (X_hat - X_hat.colwise().mean()).cwiseProduct((X_hat - X_hat.colwise().mean()).conjugate()).lazyProduct(vec_of_ones);
+				tmp.real() = tmp.real() * gamma;
+				tmp.imag() = tmp.imag() * gamma;
+				TT = TT + tmp;
+			}
+
+			// ONV
+			if(alpha != 0) { // if only alpha, then filter = MVSDF
+				tmp.real().setOnes(); tmp.imag().setZero();
+				tmp.real() = tmp.real() * alpha;
+				TT = TT + tmp;
+			}
+
 		}
 
-
+		// Compute h as ECPSDF filter (X * (X^(+) *  X)^(-1) * U) but use T in application (saves some computation)
 
 	}
 }

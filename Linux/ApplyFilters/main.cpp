@@ -207,7 +207,7 @@ int main(int argc, char *argv[]) {
 
 	if(imgs.size() > 0) {
 		// build filters
-		OTSDF<Eigen::MatrixXd> *thefilter = new OTSDF<Eigen::MatrixXd>(1-pow(10,-5)); // matrix of doubles
+		OTSDF<Eigen::MatrixXd> *thefilter = new OTSDF<Eigen::MatrixXd>(pow(10,-5), 1-pow(10,-5), 0.5); // matrix of doubles
 		for(unsigned int i=0; i<1; i++) {
 			if(imgs[i].SizeMinusOne != 0) {
 
@@ -265,23 +265,8 @@ int main(int argc, char *argv[]) {
 						std::cout << "Success\n";
 					}
 				}
-
-
-
-
 				//EigShowImg(imgs[i]);
-				//thefilter->trainfilter();
-
-
-				/* 1D */
-
-
-				//convert = eigen2cvMat(resizedimg, CV_64F);
-				//image = convert;
-				//image.convertTo(image,CV_8U);
-				//cv::namedWindow("Display window", CV_WINDOW_AUTOSIZE); // Create a window for display.
-				//cv::imshow("Display window", image);                   // Show our image inside it.
-				//cv::waitKey(0);
+				thefilter->trainfilter();
 			}
 		}
 		thefilter = 0;
