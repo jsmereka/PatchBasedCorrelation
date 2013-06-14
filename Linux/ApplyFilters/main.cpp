@@ -274,7 +274,7 @@ int main(int argc, char *argv[]) {
 
 	}
 	// Not limited to RowVector, testing just cause...
-	OTSDF<Eigen::RowVectorXf> *thefiltervec = new OTSDF<Eigen::RowVectorXf>(pow(10,-5), 1-pow(10,-5), 0.0); // vector of floats
+	OTSDF<Eigen::RowVectorXf> *thefiltervec = new OTSDF<Eigen::RowVectorXf>(pow(10,-5), 1-pow(10,-5), 0.5); // vector of floats
 
 	Eigen::RowVectorXf truesig(15); truesig << 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0;
 
@@ -333,6 +333,7 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
+	thefiltervec->trainfilter();
 
 	thefiltervec = 0;
 	delete thefiltervec;

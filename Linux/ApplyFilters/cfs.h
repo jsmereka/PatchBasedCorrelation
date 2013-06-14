@@ -11,13 +11,13 @@
 
 /**
 
-  Base filter class for 1-d and 2-d signals
+  Base filter class for 1-d and 2-d data samples
 
   @author   Jonathon M. Smereka & Vishnu Naresh Boddetti
   @version  04-13-2013
 
 */
-template <class T>									// designed for Matrix or Vector classes (non-complex)
+template <class T>									// designed for Matrix or Vector classes (non-complex numeric types)
 class filter {
 public:
 	typedef Eigen::Matrix<std::complex<typename T::RealScalar>, Eigen::Dynamic, Eigen::Dynamic> MatCplx;
@@ -28,27 +28,27 @@ public:
 	typedef typename T::RealScalar TVar;
 
 private:
-	bool check_rank(T signal, bool auth);			// check the matrix rank against the authentic or imposter signals
+	bool check_rank(T signal, bool auth);			// check the matrix rank against the authentic or imposter samples
 	int get_rank(TMat const& signal);				// get the matrix rank and return it as an int
-	void addtoX(T const& signal);					// adds the signal to X
-	void addtoU(bool auth);							// add a 1 or 0 to vector U based on authentic or impostor signal
+	void addtoX(T const& signal);					// adds the data sample to X
+	void addtoU(bool auth);							// add a 1 or 0 to vector U based on authentic or impostor sample
 
 protected:
-	TMat X;											// matrix of signals (authentic and impostor) in the spatial domain
-	MatCplx X_hat;									// matrix of signals (authentic and impostor) in the frequency domain
+	TMat X;											// matrix of samples (authentic and impostor) in the spatial domain
+	MatCplx X_hat;									// matrix of samples (authentic and impostor) in the frequency domain
 	TVec U;											// vector of zeros and ones designating authentic and impostors in X
 
-	MatCplx H_hat;									// the filter itself in the frequency domain
+	VecCplx H_hat;									// the filter itself in the frequency domain
 
-	int input_row, input_col;						// size of first signal added (new inputs will be resized - padded or cropped - to this)
+	int input_row, input_col;						// size of first sample added (new inputs will be resized - padded or cropped - to this)
 	int auth_count, imp_count;						// authentic and impostor counts
 	bool docomputerank;								// can turn on or off rank computation before adding samples (faster if off)
 	bool cutfromcenter;								// zero-pad or crop from the center if true, otherwise top left corner
 
-	void zero_pad(T &signal, const int siz1, const int siz2, bool center);// resizes signal window (zero pad/crop) based on input size
+	void zero_pad(T &signal, const int siz1, const int siz2, bool center);// resizes sample window (zero pad/crop) based on input size
 
-	void fft_scalar(T const& sig, MatCplx &sig_freq, int siz1, int siz2); // put signal into frequency domain
-	void ifft_scalar(T &sig, MatCplx const& sig_freq);					  // get signal from frequency domain
+	void fft_scalar(T const& sig, MatCplx &sig_freq, int siz1, int siz2); // put sample into frequency domain
+	void ifft_scalar(T &sig, MatCplx const& sig_freq);					  // get sample from frequency domain
 
 public:
 	filter(){
@@ -67,15 +67,15 @@ public:
 
 
 
-	bool add_auth(T const& newsig);						// add an authentic class example for training
-	bool add_imp(T const& newsig);						// add an impostor class example for training
+	bool add_auth(T const& newsig);						// add an authentic class sample for training
+	bool add_imp(T const& newsig);						// add an impostor class sample for training
 
 	inline int getauthcount(void) { return auth_count; }	// # of authentics added
 	inline int getimpcount(void) { return imp_count; }		// # of impostors added
-	inline void computerank(bool tmp) { docomputerank = tmp; } // set whether to compute matrix rank (check if similar signal has been added already)
-	inline void adjustfromcenter(bool tmp) { cutfromcenter = tmp; } // set whether to crop/pad from the center or top left corner of the signal
+	inline void computerank(bool tmp) { docomputerank = tmp; } // set whether to compute matrix rank (check if similar sample has been added already)
+	inline void adjustfromcenter(bool tmp) { cutfromcenter = tmp; } // set whether to crop/pad from the center or top left corner of the sample
 
-	virtual void trainfilter() = 0;					// train the filter - this varies with each filter type
+	virtual void trainfilter() = 0;						// train the filter - this varies with each filter type
 
 	EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
@@ -103,7 +103,6 @@ public:
   @version  04-13-2013
 
 */
-
 template <class T>
 class OTSDF : public filter<T> {
 private:
@@ -112,6 +111,8 @@ private:
 	using filter<T>::auth_count;
 	using filter<T>::imp_count;
 	using filter<T>::X_hat;
+	using filter<T>::H_hat;
+	using filter<T>::U;
 
 	typename filter<T>::VecCplx TT;					// diagonal matrix (in our case a vector) containing ASM, ONV, and ACE components
 
@@ -161,7 +162,6 @@ public:
   @return   nothing
 
 */
-// TODO implement filter training
 template <class T>
 void OTSDF<T>::trainfilter() {
 	int N = auth_count + imp_count;
@@ -169,8 +169,7 @@ void OTSDF<T>::trainfilter() {
 		int d = input_row * input_col;
 
 		// Compute T matrix, labeled as TT cause T is the template type
-		TT.resize(d);
-		TT.real().setZero(); TT.imag().setZero();
+		TT.resize(d); TT.real().setZero(); TT.imag().setZero();
 
 		if(alpha != 0.0 || beta != 0.0 || gamma != 0.0) {
 			TT.real().setOnes(); // if no alpha, beta, or gamma, then filter = MVSDF under white noise = ECPSDF
@@ -187,24 +186,30 @@ void OTSDF<T>::trainfilter() {
 			}
 			// ASM
 			if(gamma != 0) { // if only gamma, then filter = constrained MACH
-				//
+				// diagonal matrix S = 1/(N*d) * SUM{ (Xi - mean(Xi)) * Conj(Xi - mean(Xi)) }
 				tmp = (X_hat - X_hat.colwise().mean()).cwiseProduct((X_hat - X_hat.colwise().mean()).conjugate()).lazyProduct(vec_of_ones);
 				tmp.real() = tmp.real() * gamma;
 				tmp.imag() = tmp.imag() * gamma;
 				TT = TT + tmp;
 			}
-
 			// ONV
 			if(alpha != 0) { // if only alpha, then filter = MVSDF
+				// diagonal matrix P = constant * identity for additive white noise
 				tmp.real().setOnes(); tmp.imag().setZero();
 				tmp.real() = tmp.real() * alpha;
 				TT = TT + tmp;
 			}
-
 		}
 
 		// Compute h as ECPSDF filter (X * (X^(+) *  X)^(-1) * U) but use T in application (saves some computation)
+		H_hat.resize(d);  H_hat.real().setZero(); H_hat.imag().setZero();
 
+		// if number of input data samples is less than 5, then inverting (X^(+) *  X) can be done very quickly
+		if(N < 5) {
+			//
+		} else {
+			//
+		}
 	}
 }
 
@@ -212,12 +217,12 @@ void OTSDF<T>::trainfilter() {
 
 /**
 
-  Adds an authentic signal to those used to train the filter
+  Adds an authentic data sample to those used to train the filter
 
   @author   Jonathon M. Smereka
   @version  04-10-2013
 
-  @param    newsig		the 1-d/2-d signal that is to be added
+  @param    newsig		the 1-d/2-d sample that is to be added
 
   @return   true or false if successfully added
 
@@ -231,12 +236,12 @@ bool filter<T>::add_auth(T const& newsig) {
 
 /**
 
-  Adds an imposter signal to those used to train the filter
+  Adds an imposter data sample to those used to train the filter
 
   @author   Jonathon M. Smereka
   @version  04-10-2013
 
-  @param    newsig		the 1-d/2-d signal that is to be added
+  @param    newsig		the 1-d/2-d sample that is to be added
 
   @return   true or false if successfully added
 
@@ -250,12 +255,12 @@ bool filter<T>::add_imp(T const& newsig) {
 
 /**
 
-  Check the matrix rank against the other authentic or imposter signals
+  Check the matrix rank against the other authentic or imposter data samples
 
   @author   Jonathon M. Smereka
   @version  04-13-2013
 
-  @param    signal		the 1-d/2-d signal that is to be added
+  @param    signal		the 1-d/2-d sample that is to be added
   @param	auth		1 = authentic, 0 = imposter
 
   @return   true or false if to be added to the vector
@@ -279,7 +284,7 @@ bool filter<T>::check_rank(T signal, bool auth) {
 			return true;
 		}
 	} else {
-		// make sure it's the same size as the other signals
+		// make sure it's the same size as the other samples
 		if(X.rows() != sz) {
 			zero_pad(signal, input_row, input_col, cutfromcenter);
 			N = signal.rows();
@@ -288,7 +293,7 @@ bool filter<T>::check_rank(T signal, bool auth) {
 		}
 
 		if(docomputerank) {
-			// put signal into matrix
+			// put sample into matrix
 			TMat combsignal = X;
 			combsignal.conservativeResize(X.rows(),X.cols()+1);
 
@@ -317,12 +322,12 @@ bool filter<T>::check_rank(T signal, bool auth) {
 
 /**
 
-  Add vectorized signal to X matrix
+  Add vectorized sample to X matrix
 
   @author   Jonathon M. Smereka
   @version  04-10-2013
 
-  @param    signal		the 1-d/2-d signal that is to be added
+  @param    signal		the 1-d/2-d sample that is to be added
 
   @return   nothing
 
@@ -379,7 +384,7 @@ void filter<T>::addtoX(T const& signal) {
 
 /**
 
-  Add a 1 or 0 to vector U based on authentic or impostor signal
+  Add a 1 or 0 to vector U based on authentic or impostor sample
 
   @author   Jonathon M. Smereka
   @version  04-10-2013
@@ -416,13 +421,13 @@ void filter<T>::addtoU(bool auth) {
 
 /**
 
-  Put 1-d/2-d data into the frequency domain
+  Put 1-d/2-d data sample into the frequency domain
 
   @author   Vishnu Naresh Boddetti & Jonathon M. Smereka
   @version  04-10-2013
 
-  @param    sig			the 1-d/2-d signal in spatial domain
-  @param    sig_freq	the 1-d/2-d signal in frequency domain
+  @param    sig			the 1-d/2-d sample in spatial domain
+  @param    sig_freq	the 1-d/2-d sample in frequency domain
   @param    siz1		rows
   @param    siz2		cols
 
@@ -485,13 +490,13 @@ void filter<T>::fft_scalar(T const& sig, MatCplx &sig_freq, int siz1, int siz2) 
 
 /**
 
-  Put 1-d/2-d data into spatial domain from frequency domain
+  Put 1-d/2-d data sample into spatial domain from frequency domain
 
   @author   Vishnu Naresh Boddetti & Jonathon M. Smereka
   @version  04-10-2013
 
-  @param    sig			the 1-d/2-d signal in spatial domain
-  @param    sig_freq	the 1-d/2-d signal in frequency domain
+  @param    sig			the 1-d/2-d sample in spatial domain
+  @param    sig_freq	the 1-d/2-d sample in frequency domain
 
   @return   passed by ref to return data in sig
 
@@ -550,7 +555,7 @@ void filter<T>::ifft_scalar(T &sig, MatCplx const& sig_freq) {
   @author   Jonathon M. Smereka
   @version  04-03-2013
 
-  @param    signal		the 2-d signal to be checked
+  @param    signal		the 2-d sample to be checked
 
   @return   matrix rank
 
@@ -572,17 +577,17 @@ int filter<T>::get_rank(TMat const& signal) {
 
 /**
 
-  Zero pad or crop the signal based on the input size parameters, simply using conserative resize won't work (uninitialized matrix elements)
+  Zero pad or crop the sample based on the input size parameters, simply using conserative resize won't work (uninitialized matrix elements)
 
   @author   Jonathon M. Smereka
   @version  04-13-2013
 
-  @param    signal		the 1-d/2-d signal to be checked
+  @param    signal		the 1-d/2-d sample to be checked
   @param	siz1		final number of rows for the output
   @param	siz2		final number of columns for the output
-  @param	center		pad/cut so the signal is centered
+  @param	center		pad/cut so the sample is centered
 
-  @return   signal in selected size window
+  @return   passed by ref to return sample in selected size window
 
 */
 template <class T>
