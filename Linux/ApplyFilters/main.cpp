@@ -205,7 +205,7 @@ int main(int argc, char *argv[]) {
 	}
 
 
-	if(imgs.size() > 0) {
+	if(0) {
 		// build filters
 		OTSDF<Eigen::MatrixXd> *thefilter = new OTSDF<Eigen::MatrixXd>(1-pow(10,-5)); // matrix of doubles
 		for(unsigned int i=0; i<1; i++) {
@@ -287,69 +287,68 @@ int main(int argc, char *argv[]) {
 		thefilter = 0;
 		delete thefilter;
 
-
-		// TODO tests with 1-D signals (square wave or something)
-		OTSDF<Eigen::VectorXd> *thefiltervec = new OTSDF<Eigen::VectorXd>(pow(10,-5), 1-pow(10,-5), 0.0); // vector of floats
-
-		Eigen::VectorXd truesig; truesig << 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0;
-
-		/* 1D */
-		thefilter->computerank(true); // is defaulted as true, but we can set it anyway
-
-		std::cout << "TESTING BASIC FUNCTIONALITY (1D):\n";
-		///// Basic Tests
-		{
-			// Successfully add first image to the filter
-			std::cout << "\tAdds signal: ";
-			if(thefiltervec->add_auth(truesig)) {
-				std::cout << "Success\n";
-			} else {
-				std::cout << "Failure!\n";
-			}
-			// Fail to add the same image again to the filter
-			std::cout << "\tRejects the same signal (authentic): ";
-			if(thefiltervec->add_auth(truesig)) {
-				std::cout << "Failure!\n";
-			} else {
-				std::cout << "Success\n";
-			}
-			// Fail to add the same image again to the filter as an impostor
-			std::cout << "\tRejects the same signal (impostor): ";
-			if(thefiltervec->add_imp(truesig)) {
-				std::cout << "Failure!\n";
-			} else {
-				std::cout << "Success\n";
-			}
-		}
-
-		///// Resize original image and add to the filter
-		{
-			// pad image on right and bottom sides
-			Eigen::VectorXd resizedvec = truesig;
-			resizedvec.conservativeResize(truesig.rows()+6);
-			thefilter->adjustfromcenter(false);
-			// fail to add the image
-			std::cout << "\tRejects same signal after being padded (non-centered): ";
-			if(thefiltervec->add_auth(resizedvec)) {
-				std::cout << "Failure!\n";
-			} else {
-				std::cout << "Success\n";
-			}
-			// pad image on all sides
-			resizedvec.setZero(truesig.rows()+6);
-			resizedvec.block(3,0,truesig.rows(),1) = truesig;
-			thefilter->adjustfromcenter(true);
-			// fail to add the image
-			std::cout << "\tRejects same image after being padded (centered): ";
-			if(thefiltervec->add_auth(resizedvec)) {
-				std::cout << "Failure!\n";
-			} else {
-				std::cout << "Success\n";
-			}
-		}
-
-
-		thefiltervec = 0;
-		delete thefiltervec;
 	}
+	// TODO tests with 1-D signals (square wave or something)
+	OTSDF<Eigen::VectorXd> *thefiltervec = new OTSDF<Eigen::VectorXd>(pow(10,-5), 1-pow(10,-5), 0.0); // vector of floats
+
+	Eigen::VectorXd truesig(15); truesig << 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0;
+
+	/* 1D */
+	thefiltervec->computerank(true); // is defaulted as true, but we can set it anyway
+
+	std::cout << "TESTING BASIC FUNCTIONALITY (1D):\n";
+	///// Basic Tests
+	{
+		// Successfully add first image to the filter
+		std::cout << "\tAdds signal: ";
+		if(thefiltervec->add_auth(truesig)) {
+			std::cout << "Success\n";
+		} else {
+			std::cout << "Failure!\n";
+		}
+		// Fail to add the same image again to the filter
+		std::cout << "\tRejects the same signal (authentic): ";
+		if(thefiltervec->add_auth(truesig)) {
+			std::cout << "Failure!\n";
+		} else {
+			std::cout << "Success\n";
+		}
+		// Fail to add the same image again to the filter as an impostor
+		std::cout << "\tRejects the same signal (impostor): ";
+		if(thefiltervec->add_imp(truesig)) {
+			std::cout << "Failure!\n";
+		} else {
+			std::cout << "Success\n";
+		}
+	}
+
+	///// Resize original image and add to the filter
+	{
+		// pad image on right and bottom sides
+		Eigen::VectorXd resizedvec = truesig;
+		resizedvec.conservativeResize(truesig.rows()+6);
+		thefiltervec->adjustfromcenter(false);
+		// fail to add the image
+		std::cout << "\tRejects same signal after being padded (non-centered): ";
+		if(thefiltervec->add_auth(resizedvec)) {
+			std::cout << "Failure!\n";
+		} else {
+			std::cout << "Success\n";
+		}
+		// pad image on all sides
+		resizedvec.setZero(truesig.rows()+6);
+		resizedvec.block(3,0,truesig.rows(),1) = truesig;
+		thefiltervec->adjustfromcenter(true);
+		// fail to add the image
+		std::cout << "\tRejects same image after being padded (centered): ";
+		if(thefiltervec->add_auth(resizedvec)) {
+			std::cout << "Failure!\n";
+		} else {
+			std::cout << "Success\n";
+		}
+	}
+
+
+	thefiltervec = 0;
+	delete thefiltervec;
 }
