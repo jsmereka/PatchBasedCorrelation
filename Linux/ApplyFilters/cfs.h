@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <math.h>
 #include <fftw3.h>
-
+#include <memory>
 
 /**
 
@@ -255,10 +255,10 @@ bool filter<T>::check_rank(T signal, bool auth) {
 			TMat combsignal = X;
 			combsignal.conservativeResize(X.rows(),X.cols()+1);
 
-			// TODO: fix vectorization
 			// vectorize
-
-			double *arrayd = (signal.template data());
+			TVar *arrayd = (signal.template data());
+			//double *arrayd;
+			//Eigen::Map<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> >(arrayd,N,M) = signal.template cast<double>();
 
 			for(int j=0; j<sz; j++) {
 				combsignal(j,X.cols()) = arrayd[j];
@@ -302,11 +302,11 @@ void filter<T>::addtoX(T const& signal) {
 	} else {
 		X.conservativeResize(X.rows(),X.cols()+1);
 	}
-	// TODO: fix vectorization
+
 	// vectorize
-	const double *arrayd = signal.template data();
-	//double arrayd[N*M];
-	//Eigen::Map<T>(arrayd, N, M) = signal.template cast<double>();
+	const TVar *arrayd = signal.template data();
+	//double *arrayd;
+	//Eigen::Map<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> >(arrayd,N,M) = signal.template cast<double>();
 
 	for(int j=0; j<sz; j++) {
 		X(j,X.cols()-1) = arrayd[j];
@@ -407,10 +407,11 @@ void filter<T>::fft_scalar(T const& sig, MatCplx &sig_freq, int siz1, int siz2) 
 
 	mat1 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex)*siz1*siz2);
 	mat2 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex)*siz1*siz2);
-	// TODO: fix vectorization
-	const double *arrayd = sig.template data();
-	//double arrayd[N*M];
-	//Eigen::Map<T>(arrayd, N, M) = sig.template cast<double>();
+
+	const TVar *arrayd = sig.template data();
+	//double *arrayd;
+	//Eigen::Map<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> >(arrayd,N,M) = sig.template cast<double>();
+
 
 	for(int i=0; i<sig.rows()*sig.cols(); i++) {
 		mat1[i][0] = arrayd[i];
@@ -521,7 +522,7 @@ template <class T>
 int filter<T>::get_rank(TMat const& signal) {
 	int rank = 0;
 	Eigen::JacobiSVD<TMat> svd(signal,0);
-	Eigen::VectorXd vals = svd.singularValues();
+	TVec vals = svd.singularValues();
 	for(int i = 0; i<vals.rows()*vals.cols(); i++) {
 		if((int)(vals(i)) != 0) {
 			rank++; // count non-zero values

@@ -205,7 +205,7 @@ int main(int argc, char *argv[]) {
 	}
 
 
-	if(0) {
+	if(imgs.size() > 0) {
 		// build filters
 		OTSDF<Eigen::MatrixXd> *thefilter = new OTSDF<Eigen::MatrixXd>(1-pow(10,-5)); // matrix of doubles
 		for(unsigned int i=0; i<1; i++) {
@@ -288,10 +288,10 @@ int main(int argc, char *argv[]) {
 		delete thefilter;
 
 	}
-	// TODO tests with 1-D signals (square wave or something)
-	OTSDF<Eigen::VectorXd> *thefiltervec = new OTSDF<Eigen::VectorXd>(pow(10,-5), 1-pow(10,-5), 0.0); // vector of floats
+	// Not limited to RowVector, testing just cause...
+	OTSDF<Eigen::RowVectorXf> *thefiltervec = new OTSDF<Eigen::RowVectorXf>(pow(10,-5), 1-pow(10,-5), 0.0); // vector of floats
 
-	Eigen::VectorXd truesig(15); truesig << 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0;
+	Eigen::RowVectorXf truesig(15); truesig << 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0;
 
 	/* 1D */
 	thefiltervec->computerank(true); // is defaulted as true, but we can set it anyway
@@ -325,8 +325,8 @@ int main(int argc, char *argv[]) {
 	///// Resize original image and add to the filter
 	{
 		// pad image on right and bottom sides
-		Eigen::VectorXd resizedvec = truesig;
-		resizedvec.conservativeResize(truesig.rows()+6);
+		Eigen::RowVectorXf resizedvec = truesig;
+		resizedvec.conservativeResize(truesig.cols()+6); // added data is garbage, but it doesn't matter cause it gets cut out anyway
 		thefiltervec->adjustfromcenter(false);
 		// fail to add the image
 		std::cout << "\tRejects same signal after being padded (non-centered): ";
@@ -336,11 +336,11 @@ int main(int argc, char *argv[]) {
 			std::cout << "Success\n";
 		}
 		// pad image on all sides
-		resizedvec.setZero(truesig.rows()+6);
-		resizedvec.block(3,0,truesig.rows(),1) = truesig;
+		resizedvec.setZero(truesig.cols()+6);
+		resizedvec.block(0,3,1,truesig.cols()) = truesig;
 		thefiltervec->adjustfromcenter(true);
 		// fail to add the image
-		std::cout << "\tRejects same image after being padded (centered): ";
+		std::cout << "\tRejects same signal after being padded (centered): ";
 		if(thefiltervec->add_auth(resizedvec)) {
 			std::cout << "Failure!\n";
 		} else {
