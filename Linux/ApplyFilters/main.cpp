@@ -14,6 +14,10 @@
 
 #define cvtype CV_64F
 
+// simple containers to label authentic and impostor images (they come in unordered)
+std::vector<int> authimg;
+std::vector<int> impimg;
+
 
 // type conversion from darwin framework edited to work properly (opencv is row-major, while eigen is column-major)
 Eigen::MatrixXd cvMat2eigen(const CvMat *m) {
@@ -140,7 +144,7 @@ void loadimages(std::vector<Eigen::MatrixXd> &imgs, std::string directory, int w
 	if(!d) {
 		return;
 	}
-	int i, k, ct=0;
+	int i, k, ct=0, ct2=0;
 	std::string imgChk, name;
 	std::string loadname;
 	cv::Mat tmpimg, resizedimg;
@@ -170,7 +174,15 @@ void loadimages(std::vector<Eigen::MatrixXd> &imgs, std::string directory, int w
 					std::cout << "image data did not load properly for " << loadname << ", ";
 				} else {
 					Eigen::MatrixXd newmat; CvMat convert;
-					std::cout << " Loaded";
+					std::cout << " Loaded " << name;
+
+					if(!name.compare(0,4,"auth")) {
+						// authentic image
+						authimg.push_back(ct2);
+					} else if(!name.compare(0,3,"imp")) {
+						impimg.push_back(ct2);
+					}
+
 					if(tmpimg.rows != height || tmpimg.cols != width) {
 						resize(tmpimg, resizedimg, cv::Size(width,height), 0, 0, cv::INTER_CUBIC);
 						std::cout << ", Resized (" << tmpimg.rows << "x" << tmpimg.cols << "->" << height << "x" << width << ")";
@@ -183,7 +195,7 @@ void loadimages(std::vector<Eigen::MatrixXd> &imgs, std::string directory, int w
 					}
 					newmat = cvMat2eigen(&convert);
 					imgs.push_back(newmat);
-					std::cout << ", Complete\n";
+					std::cout << ", Complete\n"; ct2++;
 				}
 			} else {
 				std::cout << "Not Loading: " << name << "\n";
@@ -201,106 +213,132 @@ int main(int argc, char *argv[]) {
 
 	// get image from directory
 	if(argc > 1) {
-		loadimages(imgs, argv[1], 200, 300);
+		loadimages(imgs, argv[1], 92, 112);
 	}
 
 
-	if(imgs.size() > 0) {
+	if(imgs.size() > 0 && authimg.size() > 0) {
+		bool nontested = true; unsigned int i = 0;
 		// build filters
-		OTSDF<Eigen::MatrixXd> *thefilter = new OTSDF<Eigen::MatrixXd>(pow(10,-5), 1-pow(10,-5), 0.5); // matrix of doubles
-		for(unsigned int i=0; i<1; i++) {
+		OTSDF<Eigen::MatrixXd> thefilter(pow(10,-5), 1-pow(10,-5), 0.5); // matrix of doubles
+		thefilter.computerank(true); // is defaulted as true, but we can set it anyway
+
+		// save one auth img and one imp image for comparison
+
+		for(unsigned int j=0; j<authimg.size()-1; j++) {
+			i = authimg[j];
 			if(imgs[i].SizeMinusOne != 0) {
 
-				/* 2D */
-				thefilter->computerank(true); // is defaulted as true, but we can set it anyway
+				if(nontested) {
+					/* 2D */
+					std::cout << "TESTING BASIC FUNCTIONALITY (2D):\n";
+					///// Basic Tests
+					{
+						// Successfully add first image to the filter
+						std::cout << "\tAdds image: ";
+						if(thefilter.add_auth(imgs[i])) {
+							std::cout << "Success\n";
+						} else {
+							std::cout << "Failure!\n";
+						}
+						// Fail to add the same image again to the filter
+						std::cout << "\tRejects the same image (authentic): ";
+						if(thefilter.add_auth(imgs[i])) {
+							std::cout << "Failure!\n";
+						} else {
+							std::cout << "Success\n";
+						}
+						// Fail to add the same image again to the filter as an impostor
+						std::cout << "\tRejects the same image (impostor): ";
+						if(thefilter.add_imp(imgs[i])) {
+							std::cout << "Failure!\n";
+						} else {
+							std::cout << "Success\n";
+						}
+					}
 
-				std::cout << "TESTING BASIC FUNCTIONALITY (2D):\n";
-				///// Basic Tests
-				{
-					// Successfully add first image to the filter
-					std::cout << "\tAdds image: ";
-					if(thefilter->add_auth(imgs[i])) {
-						std::cout << "Success\n";
-					} else {
-						std::cout << "Failure!\n";
+					///// Resize original image and add to the filter
+					{
+						// pad image on right and bottom sides
+						Eigen::MatrixXd resizedimg = imgs[i];
+						resizedimg.conservativeResize(imgs[i].rows()+20, imgs[i].cols()+40);
+						thefilter.adjustfromcenter(false);
+						// fail to add the image
+						std::cout << "\tRejects same image after being padded (non-centered): ";
+						if(thefilter.add_auth(resizedimg)) {
+							std::cout << "Failure!\n";
+						} else {
+							std::cout << "Success\n";
+						}
+						// pad image on all sides
+						resizedimg.setZero(imgs[i].rows()+20, imgs[i].cols()+40);
+						resizedimg.block(10,20,imgs[i].rows(),imgs[i].cols()) = imgs[i];
+						thefilter.adjustfromcenter(true);
+						// fail to add the image
+						std::cout << "\tRejects same image after being padded (centered): ";
+						if(thefilter.add_auth(resizedimg)) {
+							std::cout << "Failure!\n";
+						} else {
+							std::cout << "Success\n";
+						}
 					}
-					// Fail to add the same image again to the filter
-					std::cout << "\tRejects the same image (authentic): ";
-					if(thefilter->add_auth(imgs[i])) {
-						std::cout << "Failure!\n";
-					} else {
-						std::cout << "Success\n";
-					}
-					// Fail to add the same image again to the filter as an impostor
-					std::cout << "\tRejects the same image (impostor): ";
-					if(thefilter->add_imp(imgs[i])) {
-						std::cout << "Failure!\n";
-					} else {
-						std::cout << "Success\n";
-					}
+					//EigShowImg(imgs[i]);
+					nontested = false; // only need to run test once
+				} else {
+					thefilter.add_auth(imgs[j]);
 				}
+			} // endif
+		} // endfor
 
-				///// Resize original image and add to the filter
-				{
-					// pad image on right and bottom sides
-					Eigen::MatrixXd resizedimg = imgs[i];
-					resizedimg.conservativeResize(imgs[i].rows()+20, imgs[i].cols()+40);
-					thefilter->adjustfromcenter(false);
-					// fail to add the image
-					std::cout << "\tRejects same image after being padded (non-centered): ";
-					if(thefilter->add_auth(resizedimg)) {
-						std::cout << "Failure!\n";
-					} else {
-						std::cout << "Success\n";
-					}
-					// pad image on all sides
-					resizedimg.setZero(imgs[i].rows()+20, imgs[i].cols()+40);
-					resizedimg.block(10,20,imgs[i].rows(),imgs[i].cols()) = imgs[i];
-					thefilter->adjustfromcenter(true);
-					// fail to add the image
-					std::cout << "\tRejects same image after being padded (centered): ";
-					if(thefilter->add_auth(resizedimg)) {
-						std::cout << "Failure!\n";
-					} else {
-						std::cout << "Success\n";
-					}
+		if(impimg.size() > 0) {
+			for(unsigned int j=0; j<impimg.size()-1; j++) {
+				i = impimg[j];
+				if(imgs[i].SizeMinusOne != 0) {
+					thefilter.add_imp(imgs[i]);
 				}
-				//EigShowImg(imgs[i]);
-				thefilter->trainfilter();
-			}
+			} // endfor
 		}
-		thefilter = 0;
-		delete thefilter;
+
+		// train
+		std::cout << "\tTraining the Filter\n";
+		thefilter.trainfilter();
+
+		// apply
+		std::cout << "\tApplying the filter against authentic\n";
+		//EigShowImg(thefilter->applyfilter(imgs[authimg.back()]));
+
+		std::cout << "\tApplying the filter against impostor\n";
+		//EigShowImg(thefilter->applyfilter(imgs[impimg.back()]));
 
 	}
 	// Not limited to RowVector, testing just cause...
-	OTSDF<Eigen::RowVectorXf> *thefiltervec = new OTSDF<Eigen::RowVectorXf>(pow(10,-5), 1-pow(10,-5), 0.5); // vector of floats
+	OTSDF<Eigen::RowVectorXf> thefiltervec(pow(10,-5), 1-pow(10,-5), 0.5); // vector of floats
 
 	Eigen::RowVectorXf truesig(15); truesig << 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0;
 
 	/* 1D */
-	thefiltervec->computerank(true); // is defaulted as true, but we can set it anyway
+	thefiltervec.computerank(true); // is defaulted as true, but we can set it anyway
 
 	std::cout << "TESTING BASIC FUNCTIONALITY (1D):\n";
 	///// Basic Tests
 	{
 		// Successfully add first image to the filter
 		std::cout << "\tAdds signal: ";
-		if(thefiltervec->add_auth(truesig)) {
+		if(thefiltervec.add_auth(truesig)) {
 			std::cout << "Success\n";
 		} else {
 			std::cout << "Failure!\n";
 		}
 		// Fail to add the same image again to the filter
 		std::cout << "\tRejects the same signal (authentic): ";
-		if(thefiltervec->add_auth(truesig)) {
+		if(thefiltervec.add_auth(truesig)) {
 			std::cout << "Failure!\n";
 		} else {
 			std::cout << "Success\n";
 		}
 		// Fail to add the same image again to the filter as an impostor
 		std::cout << "\tRejects the same signal (impostor): ";
-		if(thefiltervec->add_imp(truesig)) {
+		if(thefiltervec.add_imp(truesig)) {
 			std::cout << "Failure!\n";
 		} else {
 			std::cout << "Success\n";
@@ -312,10 +350,10 @@ int main(int argc, char *argv[]) {
 		// pad image on right and bottom sides
 		Eigen::RowVectorXf resizedvec = truesig;
 		resizedvec.conservativeResize(truesig.cols()+6); // added data is garbage, but it doesn't matter cause it gets cut out anyway
-		thefiltervec->adjustfromcenter(false);
+		thefiltervec.adjustfromcenter(false);
 		// fail to add the image
 		std::cout << "\tRejects same signal after being padded (non-centered): ";
-		if(thefiltervec->add_auth(resizedvec)) {
+		if(thefiltervec.add_auth(resizedvec)) {
 			std::cout << "Failure!\n";
 		} else {
 			std::cout << "Success\n";
@@ -323,18 +361,21 @@ int main(int argc, char *argv[]) {
 		// pad image on all sides
 		resizedvec.setZero(truesig.cols()+6);
 		resizedvec.block(0,3,1,truesig.cols()) = truesig;
-		thefiltervec->adjustfromcenter(true);
+		thefiltervec.adjustfromcenter(true);
 		// fail to add the image
 		std::cout << "\tRejects same signal after being padded (centered): ";
-		if(thefiltervec->add_auth(resizedvec)) {
+		if(thefiltervec.add_auth(resizedvec)) {
 			std::cout << "Failure!\n";
 		} else {
 			std::cout << "Success\n";
 		}
 	}
 
-	thefiltervec->trainfilter();
+	truesig << 1, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0, 0, 1, 0, 1;
+	thefiltervec.add_auth(truesig);
 
-	thefiltervec = 0;
-	delete thefiltervec;
+	truesig << 1, 1, 1, 1, 0, 1, 0, 1, 0, 0, 1, 1, 0, 1, 1;
+	thefiltervec.add_imp(truesig);
+
+	thefiltervec.trainfilter();
 }

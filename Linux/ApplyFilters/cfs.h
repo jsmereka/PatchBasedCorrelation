@@ -16,16 +16,21 @@
   @author   Jonathon M. Smereka & Vishnu Naresh Boddetti
   @version  04-13-2013
 
-*/
+ */
 template <class T>									// designed for Matrix or Vector classes (non-complex numeric types)
 class filter {
 public:
-	typedef Eigen::Matrix<std::complex<typename T::RealScalar>, Eigen::Dynamic, Eigen::Dynamic> MatCplx;
-	typedef Eigen::Matrix<typename T::RealScalar, Eigen::Dynamic, Eigen::Dynamic> TMat;
-	typedef Eigen::Matrix<std::complex<typename T::RealScalar>, Eigen::Dynamic, 1> VecCplx;
-	typedef Eigen::Matrix<std::complex<typename T::RealScalar>, 1, Eigen::Dynamic> RowVecCplx;
-	typedef Eigen::Matrix<typename T::RealScalar, Eigen::Dynamic, 1> TVec;
 	typedef typename T::RealScalar TVar;
+	typedef std::complex<TVar> TCplx;
+	typedef Eigen::Matrix<TCplx, Eigen::Dynamic, Eigen::Dynamic> MatCplx;
+	typedef Eigen::Matrix<TCplx, 4, 4> MatCplx4;
+	typedef Eigen::Matrix<TCplx, 3, 3> MatCplx3;
+	typedef Eigen::Matrix<TCplx, 2, 2> MatCplx2;
+	typedef Eigen::Matrix<TVar, Eigen::Dynamic, Eigen::Dynamic> TMat;
+	typedef Eigen::Matrix<TCplx, Eigen::Dynamic, 1> VecCplx;
+	typedef Eigen::Matrix<TCplx, 1, Eigen::Dynamic> RowVecCplx;
+	typedef Eigen::Matrix<TVar, Eigen::Dynamic, 1> TVec;
+
 
 private:
 	bool check_rank(T signal, bool auth);			// check the matrix rank against the authentic or imposter samples
@@ -36,7 +41,7 @@ private:
 protected:
 	TMat X;											// matrix of samples (authentic and impostor) in the spatial domain
 	MatCplx X_hat;									// matrix of samples (authentic and impostor) in the frequency domain
-	TVec U;											// vector of zeros and ones designating authentic and impostors in X
+	VecCplx U;											// vector of zeros and ones designating authentic and impostors in X
 
 	VecCplx H_hat;									// the filter itself in the frequency domain
 
@@ -44,11 +49,19 @@ protected:
 	int auth_count, imp_count;						// authentic and impostor counts
 	bool docomputerank;								// can turn on or off rank computation before adding samples (faster if off)
 	bool cutfromcenter;								// zero-pad or crop from the center if true, otherwise top left corner
+	bool cleanupaftertrain;							// if the filter will not be retrained at any point, clean up X, X_hat, and U after training
 
 	void zero_pad(T &signal, const int siz1, const int siz2, bool center);// resizes sample window (zero pad/crop) based on input size
 
 	void fft_scalar(T const& sig, MatCplx &sig_freq, int siz1, int siz2); // put sample into frequency domain
 	void ifft_scalar(T &sig, MatCplx const& sig_freq);					  // get sample from frequency domain
+
+	void cleanclass(void) {
+		if(cleanupaftertrain) {
+			X.resize(0,0); X_hat.resize(0,0); U.resize(0);
+			auth_count = 0; imp_count = 0; input_row = 0; input_col = 0;
+		}
+	}
 
 public:
 	filter(){
@@ -56,13 +69,12 @@ public:
 		auth_count = 0; imp_count = 0;
 		input_row = 0; input_col = 0;
 		docomputerank = true; cutfromcenter = false;
+		cleanupaftertrain = true;
 	}
 	virtual ~filter() {
 		// resize to zero to release memory
-		H_hat.resize(0,0);
-		X.resize(0,0);
-		X_hat.resize(0,0);
-		U.resize(0);
+		H_hat.resize(0);
+		cleanupaftertrain = true; cleanclass();
 	}
 
 
@@ -75,7 +87,11 @@ public:
 	inline void computerank(bool tmp) { docomputerank = tmp; } // set whether to compute matrix rank (check if similar sample has been added already)
 	inline void adjustfromcenter(bool tmp) { cutfromcenter = tmp; } // set whether to crop/pad from the center or top left corner of the sample
 
+	inline void noretraining(bool tmp) { cleanupaftertrain = tmp; } // no retraining is going to be used, clean up unnecessary memory
+
 	virtual void trainfilter() = 0;						// train the filter - this varies with each filter type
+
+	virtual T applyfilter(T const& scene) = 0;			// apply the filter to a scene, this may vary per filter design
 
 	EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
@@ -102,7 +118,7 @@ public:
   @author   Jonathon M. Smereka & Vishnu Naresh Boddetti
   @version  04-13-2013
 
-*/
+ */
 template <class T>
 class OTSDF : public filter<T> {
 private:
@@ -136,6 +152,8 @@ public:
 
 	void trainfilter();								// train the filter, putting data into base class variable H
 
+	T applyfilter(T const& scene);					// apply the filter to a scene, returning the resulting similarity plane
+
 	EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
 
@@ -161,14 +179,15 @@ public:
 
   @return   nothing
 
-*/
+ */
 template <class T>
 void OTSDF<T>::trainfilter() {
 	int N = auth_count + imp_count;
 	if(N > 0) {
 		int d = input_row * input_col;
 
-		// Compute T matrix, labeled as TT cause T is the template type
+		/* Compute T matrix, labeled as TT cause T is the template type */
+
 		TT.resize(d); TT.real().setZero(); TT.imag().setZero();
 
 		if(alpha != 0.0 || beta != 0.0 || gamma != 0.0) {
@@ -180,14 +199,14 @@ void OTSDF<T>::trainfilter() {
 			// ACE
 			if(beta != 0) { // if only beta, then filter = MACE
 				// diagonal matrix Di = Xi * Conj(Xi) = power spectrum of xi, D = 1/d * SUM{ Di }
-				TT = X_hat.cwiseProduct(X_hat.conjugate()).lazyProduct(vec_of_ones);
+				TT.noalias() = X_hat.cwiseProduct(X_hat.conjugate()).lazyProduct(vec_of_ones);
 				TT.real() = TT.real() * beta;
 				TT.imag() = TT.imag() * beta;
 			}
 			// ASM
 			if(gamma != 0) { // if only gamma, then filter = constrained MACH
 				// diagonal matrix S = 1/(N*d) * SUM{ (Xi - mean(Xi)) * Conj(Xi - mean(Xi)) }
-				tmp = (X_hat - X_hat.colwise().mean()).cwiseProduct((X_hat - X_hat.colwise().mean()).conjugate()).lazyProduct(vec_of_ones);
+				tmp.noalias() = (X_hat - X_hat.colwise().mean()).cwiseProduct((X_hat - X_hat.colwise().mean()).conjugate()).lazyProduct(vec_of_ones);
 				tmp.real() = tmp.real() * gamma;
 				tmp.imag() = tmp.imag() * gamma;
 				TT = TT + tmp;
@@ -201,16 +220,71 @@ void OTSDF<T>::trainfilter() {
 			}
 		}
 
-		// Compute h as ECPSDF filter (X * (X^(+) *  X)^(-1) * U) but use T in application (saves some computation)
+		TT.cwiseInverse(); TT.cwiseSqrt(); // T^(-1/2)
+
+
+		/* Compute h as ECPSDF filter (X * (X^(+) *  X)^(-1) * U) but use T in application (saves some computation) */
+
 		H_hat.resize(d);  H_hat.real().setZero(); H_hat.imag().setZero();
 
 		// if number of input data samples is less than 5, then inverting (X^(+) *  X) can be done very quickly
-		if(N < 5) {
-			//
-		} else {
-			//
+		// note that (X^(+) * X) is positive semi-definite
+		switch(N) {
+		case 1:
+			{
+				typename filter<T>::VecCplx XX_inv; XX_inv.noalias() = (X_hat.adjoint() * X_hat);
+				H_hat.noalias() = X_hat * XX_inv.cwiseInverse() * U;
+			}
+			break;
+		case 2:
+			{
+				typename filter<T>::MatCplx2 XX_inv; XX_inv.noalias() = (X_hat.adjoint() * X_hat);
+				H_hat.noalias() = X_hat * XX_inv.inverse() * U;
+			}
+			break;
+		case 3:
+			{
+				typename filter<T>::MatCplx3 XX_inv; XX_inv.noalias() = (X_hat.adjoint() * X_hat);
+				H_hat.noalias() = X_hat * XX_inv.inverse() * U;
+			}
+			break;
+		case 4:
+			{
+				typename filter<T>::MatCplx4 XX_inv; XX_inv.noalias() = (X_hat.adjoint() * X_hat);
+				H_hat.noalias() = X_hat * XX_inv.inverse() * U;
+			}
+			break;
+		default:
+			{
+				typename filter<T>::MatCplx XX_inv; XX_inv.noalias() = (X_hat.adjoint() * X_hat);
+				// TODO: invert matrix greater than 4x4
+			}
+			break;
 		}
+		filter<T>::cleanclass();
 	}
+}
+
+
+
+/**
+
+  Applys the trained filter to the scene
+
+  similarity plane = h^(+) * (T^(-1/2) * scene)
+
+  @author   Jonathon M. Smereka
+  @version  06-17-2013
+
+  @return   resulting similary plane
+
+ */
+template <class T>
+T OTSDF<T>::applyfilter(T const& scene) {
+	T simplane;
+	// TODO: apply filter
+
+	return simplane;
 }
 
 
@@ -226,7 +300,7 @@ void OTSDF<T>::trainfilter() {
 
   @return   true or false if successfully added
 
-*/
+ */
 template <class T>
 bool filter<T>::add_auth(T const& newsig) {
 	return check_rank(newsig, 1);
@@ -245,7 +319,7 @@ bool filter<T>::add_auth(T const& newsig) {
 
   @return   true or false if successfully added
 
-*/
+ */
 template <class T>
 bool filter<T>::add_imp(T const& newsig) {
 	return check_rank(newsig, 0);
@@ -265,7 +339,7 @@ bool filter<T>::add_imp(T const& newsig) {
 
   @return   true or false if to be added to the vector
 
-*/
+ */
 template <class T>
 bool filter<T>::check_rank(T signal, bool auth) {
 	int rank = auth_count+imp_count+1;
@@ -279,6 +353,14 @@ bool filter<T>::check_rank(T signal, bool auth) {
 		if(rank > 0) {
 			input_row = N;
 			input_col = M;
+			if(docomputerank){
+				X.resize(sz,1);
+				// vectorize
+				TVar *arrayd = (signal.template data());
+				for(int j=0; j<sz; j++) {
+					X(j,0) = arrayd[j];
+				}
+			}
 			addtoX(signal);
 			addtoU(auth);
 			return true;
@@ -295,7 +377,7 @@ bool filter<T>::check_rank(T signal, bool auth) {
 		if(docomputerank) {
 			// put sample into matrix
 			TMat combsignal = X;
-			combsignal.conservativeResize(X.rows(),X.cols()+1);
+			combsignal.conservativeResize(sz,X.cols()+1);
 
 			// vectorize
 			TVar *arrayd = (signal.template data());
@@ -308,6 +390,10 @@ bool filter<T>::check_rank(T signal, bool auth) {
 
 			// find rank
 			rank = get_rank(combsignal);
+			if(rank > (auth_count+imp_count)) {
+				X.resize(sz,X.cols()+1);
+				X = combsignal;
+			}
 		}
 		if(rank > (auth_count+imp_count)) {
 			addtoX(signal);
@@ -322,7 +408,7 @@ bool filter<T>::check_rank(T signal, bool auth) {
 
 /**
 
-  Add vectorized sample to X matrix
+  Add vectorized sample in fourier domain to X_hat matrix
 
   @author   Jonathon M. Smereka
   @version  04-10-2013
@@ -331,28 +417,12 @@ bool filter<T>::check_rank(T signal, bool auth) {
 
   @return   nothing
 
-*/
+ */
 template <class T>
 void filter<T>::addtoX(T const& signal) {
 	int N = signal.rows();
 	int M = signal.cols();
-	int sz = N*M;
-
-	// put into matrix
-	if(X.cols() == 0) {
-		X.resize(sz,1);
-	} else {
-		X.conservativeResize(X.rows(),X.cols()+1);
-	}
-
-	// vectorize
-	const TVar *arrayd = signal.template data();
-	//double *arrayd;
-	//Eigen::Map<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> >(arrayd,N,M) = signal.template cast<double>();
-
-	for(int j=0; j<sz; j++) {
-		X(j,X.cols()-1) = arrayd[j];
-	}
+	int sz;
 
 	// compute fft
 	MatCplx signal_hat;
@@ -368,15 +438,12 @@ void filter<T>::addtoX(T const& signal) {
 	} else {
 		X_hat.conservativeResize(X_hat.rows(),X_hat.cols()+1);
 	}
-	TMat temp1(N,M), temp2(N,M);
-	temp1 = signal_hat.real();
-	temp2 = signal_hat.imag();
-	int ct = 0;
-	for(int i=0; i<N; i++) {
-		for(int j=0; j<M; j++) {
-			X_hat(ct,X_hat.cols()-1) = std::complex<double>(temp1(i,j),temp2(i,j));
-			ct++;
-		}
+
+	TCplx *arrayd = (signal_hat.template data());
+
+	for(int i=0; i<sz; i++) {
+		//X_hat(i,X_hat.cols()-1) = std::complex<double>(arrayd1[i],arrayd2[i]);
+		X_hat(i,X_hat.cols()-1) = arrayd[i];
 	}
 }
 
@@ -393,26 +460,28 @@ void filter<T>::addtoX(T const& signal) {
 
   @return   nothing
 
-*/
+ */
 template <class T>
 void filter<T>::addtoU(bool auth) {
 	if(auth) {
 		auth_count++;
 		if(U.rows()*U.cols() == 0) {
 			U.resize(1);
-			U(0) = 1;
+			U(0).real() = 1; U(0).imag() = 0;
 		} else {
 			U.conservativeResize(auth_count+imp_count);
-			U(auth_count+imp_count-1) = 1;
+			U(auth_count+imp_count-1).real() = 1;
+			U(auth_count+imp_count-1).imag() = 0;
 		}
 	} else {
 		imp_count++;
 		if(U.rows()*U.cols() == 0) {
 			U.resize(1);
-			U(0) = 0;
+			U(0).real() = 0; U(0).imag() = 0;
 		} else {
 			U.conservativeResize(auth_count+imp_count);
-			U(auth_count+imp_count-1) = 0;
+			U(auth_count+imp_count-1).real() = 0;
+			U(auth_count+imp_count-1).imag() = 0;
 		}
 	}
 }
@@ -433,12 +502,9 @@ void filter<T>::addtoU(bool auth) {
 
   @return   passed by ref to return data in sig_freq
 
-*/
+ */
 template <class T>
 void filter<T>::fft_scalar(T const& sig, MatCplx &sig_freq, int siz1, int siz2) {
-
-
-	int count = 0;
 	int N = sig.rows();
 	int M = sig.cols();
 
@@ -451,11 +517,8 @@ void filter<T>::fft_scalar(T const& sig, MatCplx &sig_freq, int siz1, int siz2) 
 	mat2 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex)*siz1*siz2);
 
 	const TVar *arrayd = sig.template data();
-	//double *arrayd;
-	//Eigen::Map<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> >(arrayd,N,M) = sig.template cast<double>();
 
-
-	for(int i=0; i<sig.rows()*sig.cols(); i++) {
+	for(int i=0; i<N*M; i++) {
 		mat1[i][0] = arrayd[i];
 		mat1[i][1] = 0;
 	}
@@ -467,23 +530,18 @@ void filter<T>::fft_scalar(T const& sig, MatCplx &sig_freq, int siz1, int siz2) 
 	}
 
 	fftw_execute(plan);
-	TMat temp1(siz1,siz2);
-	TMat temp2(siz1,siz2);
 
-	count = 0;
-	for(int i=0; i<siz1; i++) {
-		for(int j=0; j<siz2; j++) {
-			temp1(i,j) = mat2[count][0];
-			temp2(i,j) = mat2[count][1];
-			count++;
-		}
+	sig_freq.resize(siz1,siz2);
+
+	TCplx *arrayc = sig_freq.template data();
+
+	for(int i=0; i<siz1*siz2; i++) {
+		arrayc[i] = std::complex<TVar>(mat2[i][0],mat2[i][1]);
 	}
-	sig_freq.conservativeResize(siz1,siz2);
-	sig_freq.real() = temp1;
-	sig_freq.imag() = temp2;
+
 	fftw_destroy_plan(plan);
-	delete [] mat1;
-	delete [] mat2;
+	fftw_free(mat1);
+	fftw_free(mat2);
 }
 
 
@@ -500,50 +558,49 @@ void filter<T>::fft_scalar(T const& sig, MatCplx &sig_freq, int siz1, int siz2) 
 
   @return   passed by ref to return data in sig
 
-*/
+ */
 template <class T>
 void filter<T>::ifft_scalar(T &sig, MatCplx const& sig_freq) {
-	int count;
 	int siz1 = sig_freq.rows();
 	int siz2 = sig_freq.cols();
+	int sz = siz1*siz2;
 
 	fftw_plan plan;
 
 	fftw_complex *mat1;
 	fftw_complex *mat2;
 
-	mat1 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex)*siz1*siz2);
-	mat2 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex)*siz1*siz2);
+	mat1 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex)*sz);
+	mat2 = (fftw_complex*) fftw_malloc(sizeof(fftw_complex)*sz);
 
 	TMat sig_real = sig_freq.real();
 	TMat sig_imag = sig_freq.imag();
 
-	count = 0;
-	for (int i=0;i<siz1;i++){
-		for (int j=0;j<siz2;j++){
-			mat1[count][0] = sig_real(i,j);
-			mat1[count][1] = sig_imag(i,j);
-			count++;
-		}
+	const TVar* arrayr = sig_real.template data();
+	const TVar* arrayi = sig_imag.template data();
+
+	for(int i=0; i<sz; i++) {
+		mat1[i][0] = arrayr[i];
+		mat1[i][1] = arrayi[i];
 	}
 
 	if(siz2 == 1 || siz1 == 1) {
-		plan = fftw_plan_dft_1d(siz1*siz2,mat1,mat2,FFTW_BACKWARD,FFTW_ESTIMATE);
+		plan = fftw_plan_dft_1d(sz,mat1,mat2,FFTW_BACKWARD,FFTW_ESTIMATE);
 	} else {
 		plan = fftw_plan_dft_2d(siz1,siz2,mat1,mat2,FFTW_BACKWARD,FFTW_ESTIMATE);
 	}
 
 	fftw_execute(plan);
 
-	double* arrayd = sig.template data();
+	TVar* arrayd = sig.template data();
 
-	for(int i=0; i<siz1*siz2; i++) {
+	for(int i=0; i<sz; i++) {
 		arrayd[i] = mat2[i][0]/(siz1*siz2);
 	}
 
 	fftw_destroy_plan(plan);
-	delete [] mat1;
-	delete [] mat2;
+	fftw_free(mat1);
+	fftw_free(mat2);
 }
 
 
@@ -559,7 +616,7 @@ void filter<T>::ifft_scalar(T &sig, MatCplx const& sig_freq) {
 
   @return   matrix rank
 
-*/
+ */
 template <class T>
 int filter<T>::get_rank(TMat const& signal) {
 	int rank = 0;
@@ -589,7 +646,7 @@ int filter<T>::get_rank(TMat const& signal) {
 
   @return   passed by ref to return sample in selected size window
 
-*/
+ */
 template <class T>
 void filter<T>::zero_pad(T &signal, const int siz1, const int siz2, bool center) {
 	int M = signal.rows();
