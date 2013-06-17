@@ -52,6 +52,7 @@ protected:
 	bool cleanupaftertrain;							// if the filter will not be retrained at any point, clean up X, X_hat, and U after training
 
 	void zero_pad(T &signal, const int siz1, const int siz2, bool center);// resizes sample window (zero pad/crop) based on input size
+	void zero_pad_cplx(MatCplx &signal, const int siz1, const int siz2, bool center);// resizes sample window (zero pad/crop) based on input size (complex matrices)
 
 	void fft_scalar(T const& sig, MatCplx &sig_freq, int siz1, int siz2); // put sample into frequency domain
 	void ifft_scalar(T &sig, MatCplx const& sig_freq);					  // get sample from frequency domain
@@ -281,8 +282,22 @@ void OTSDF<T>::trainfilter() {
  */
 template <class T>
 T OTSDF<T>::applyfilter(T const& scene) {
-	T simplane;
-	// TODO: apply filter
+	int fftszN = scene.rows() + input_row-1;
+	int fftszM = scene.cols() + input_col-1;
+
+	// put scene in freq domain and pad accordingly to prevent circular correlation
+	typename filter<T>::MatCplx scene_freq;
+
+	filter<T>::fft_scalar(scene, scene_freq, scene.rows(), scene.cols());
+	filter<T>::zero_pad_cplx(scene_freq, fftszN, fftszM, false);
+
+	// pad and conjugate transpose the filter
+	//H_hat.adjointInPlace();
+	//filter<T>::zero_pad_cplx(H_hat, fftszN, fftszM, false);
+
+	T simplane(fftszN,fftszM); //simplane.setZero();
+	//filter<T>::ifft_scalar(simplane, H_hat * (TT * scene_freq), fftszN, fftszM);
+	//filter<T>::zero_pad(simplane, scene.rows(), scene.cols(), false);
 
 	return simplane;
 }
@@ -710,5 +725,85 @@ void filter<T>::zero_pad(T &signal, const int siz1, const int siz2, bool center)
 	}
 }
 
+
+
+/**
+
+  Zero pad or crop the sample (complex matrix) based on the input size parameters, simply using conserative resize won't work (uninitialized matrix elements)
+
+  @author   Jonathon M. Smereka
+  @version  04-13-2013
+
+  @param    signal		the 1-d/2-d sample to be checked (complex matrix)
+  @param	siz1		final number of rows for the output
+  @param	siz2		final number of columns for the output
+  @param	center		pad/cut so the sample is centered
+
+  @return   passed by ref to return sample in selected size window
+
+ */
+template <class T>
+void filter<T>::zero_pad_cplx(MatCplx &signal, const int siz1, const int siz2, bool center) {
+	int M = signal.rows();
+	int N = signal.cols();
+
+	if(M != siz1 || N != siz2) {
+		// copy data into manipulative matrix
+		MatCplx temp(siz1,siz2); // temporary variable
+
+		bool nocut = false;
+		int str = 0, stc = 0; // starting row and column (center or top corner)
+
+		// Perform any cropping operations
+		if(siz1 < M || siz2 < N) {
+			if(siz1 < M && siz2 < N) { // crop both rows and columns
+				if(center) { // cut from the center
+					str = floor(abs(siz1 - M)/2);
+					stc = floor(abs(siz2 - N)/2);
+				}
+				temp = signal.block(str,stc,siz1,siz2);
+				M = siz1; N = siz2;
+			} else if(siz1 < M) {
+				if(center) { // cut from the center
+					str = floor(abs(siz1 - M)/2);
+				}
+				temp.setZero(siz1,std::max(N,siz2));
+				M = siz1;
+				temp.block(0,0,siz1,N) = signal.block(str,stc,siz1,N);
+			} else if(siz2 < N) {
+				if(center) { // cut from the center
+					stc = floor(abs(siz2 - N)/2);
+				}
+				temp.setZero(std::max(M,siz1),siz2);
+				N = siz2;
+				temp.block(0,0,M,siz2) = signal.block(str,stc,M,siz2);
+			}
+		} else {
+			temp.setZero(siz1,siz2);
+			nocut = true;
+		}
+		// Perform any padding operations
+		if(siz1 > M || siz2 > N) {
+			if(center) { // pad from the center
+				str = floor((siz1 - M)/2);
+				stc = floor((siz2 - N)/2);
+			}
+			if(siz1 > M && siz2 > N) { // pad both rows and columns
+				temp.conservativeResize(siz1,siz2);
+			} else if(siz1 > M) {
+				temp.conservativeResize(siz1,N);
+			} else if(siz2 > N) {
+				temp.conservativeResize(M,siz2);
+			}
+			if(nocut) {
+				temp.block(str,stc,M,N) = signal;
+			}
+		}
+		// resize signal
+		signal.resize(siz1,siz2);
+		signal.setZero(siz1,siz2);
+		signal = temp;
+	}
+}
 
 #endif

@@ -305,10 +305,10 @@ int main(int argc, char *argv[]) {
 
 		// apply
 		std::cout << "\tApplying the filter against authentic\n";
-		//EigShowImg(thefilter->applyfilter(imgs[authimg.back()]));
+		EigShowImg(thefilter.applyfilter(imgs[authimg.back()]));
 
 		std::cout << "\tApplying the filter against impostor\n";
-		//EigShowImg(thefilter->applyfilter(imgs[impimg.back()]));
+		//EigShowImg(thefilter.applyfilter(imgs[impimg.back()]));
 
 	}
 	// Not limited to RowVector, testing just cause...
