@@ -142,7 +142,7 @@ public:
 		alpha = 1 - lam; beta = lam; gamma = 0; trainedflag = false;
 	}
 	OTSDF() {										// initializes the parameters to their defaults
-		alpha = pow(10,-5); beta = 1 - alpha; gamma = 0; trainedflag = false;
+		alpha = pow(10,-5); beta = 1 - pow(10,-5); gamma = 0; trainedflag = false;
 	}
 	// destructor
 	~OTSDF() { }
@@ -169,8 +169,8 @@ public:
 
   h = derived filter, complex with dimension (d x 1), d = input_row * input_col, for 2D signals, it will be reshaped to (input_row x input_col)
   X = column matrix of input data, complex matrix with dimension (d x N), N = auth_count + imp_count
-  D = diagonal matrix containing average power spectral density of the training data, complex matrix with dimension (d x d), diagonal matrix Di = Xi * Conj(Xi) = power spectrum of xi, D = 1/d * SUM{ Di }
-  S = diagonal matrix containing similarity in correlation planes to the true class mean, complex matrix with dimension (d x d), S = 1/(N*d) * SUM{ (Xi - mean(Xi)) * Conj(Xi - mean(Xi)) }
+  D = diagonal matrix containing average power spectral density of the training data, complex matrix with dimension (d x d), diagonal matrix Di = Xi * Conj(Xi) = power spectrum of xi, D = 1/N * SUM{ Di }
+  S = diagonal matrix containing similarity in correlation planes to the true class mean, complex matrix with dimension (d x d), S = 1/(N) * SUM{ (Xi - mean(Xi)) * Conj(Xi - mean(Xi)) }
   P = diagonal matrix containing the power spectral density of the input noise, complex matrix with dimension (d x d), P = constant * identity matrix for additive white noise
 
   @author   Jonathon M. Smereka
@@ -186,47 +186,45 @@ void OTSDF<T>::trainfilter() {
 		int d = input_row * input_col;
 
 		/* Compute T matrix, labeled as TT cause T is the template type */
-		typename filter<T>::VecCplx TT;
-		TT.resize(d); TT.real().setZero(); TT.imag().setZero();
+		typename filter<T>::VecCplx TT(d);
+		typename filter<T>::VecCplx tmp(d);
+		TT.real().setZero(); TT.imag().setZero();
 
-		if(alpha != 0.0 || beta != 0.0 || gamma != 0.0) {
+		if(alpha == 0.0 && beta == 0.0 && gamma == 0.0) {
 			TT.real().setOnes(); // if no alpha, beta, or gamma, then filter = MVSDF under white noise = ECPSDF
 		} else {
-			typename filter<T>::VecCplx tmp(d);
-			typename filter<T>::RowVecCplx vec_of_ones(d); vec_of_ones.real().setOnes(); vec_of_ones.imag().setOnes();
+			typename filter<T>::VecCplx vec_of_ones(N); vec_of_ones.real().setOnes(); vec_of_ones.imag().setZero();
 
 			// ACE
-			if(beta != 0) { // if only beta, then filter = MACE
-				// diagonal matrix Di = Xi * Conj(Xi) = power spectrum of xi, D = 1/d * SUM{ Di }
+			if(beta != 0.0) { // if only beta, then filter = MACE
+				// diagonal matrix Di = Xi * Conj(Xi) = power spectrum of xi, D = 1/(N) * SUM{ Di }
 				TT.noalias() = X_hat.cwiseProduct(X_hat.conjugate()).lazyProduct(vec_of_ones);
-				TT.real() = TT.real() * beta;
-				TT.imag() = TT.imag() * beta;
+				TT.real() = TT.real() * (typename filter<T>::TVar)(beta/(N));
+				TT.imag() = TT.imag() * (typename filter<T>::TVar)(beta/(N));
 			}
 			// ASM
-			if(gamma != 0) { // if only gamma, then filter = constrained MACH
-				// diagonal matrix S = 1/(N*d) * SUM{ (Xi - mean(Xi)) * Conj(Xi - mean(Xi)) }
-				tmp.noalias() = (X_hat - X_hat.colwise().mean()).cwiseProduct((X_hat - X_hat.colwise().mean()).conjugate()).lazyProduct(vec_of_ones);
-				tmp.real() = tmp.real() * gamma;
-				tmp.imag() = tmp.imag() * gamma;
+			if(gamma != 0.0) { // if only gamma, then filter = constrained MACH
+				// diagonal matrix S = 1/(N) * SUM{ (Xi - mean(Xi)) * Conj(Xi - mean(Xi)) }
+				tmp.noalias() = (X_hat.colwise() - X_hat.rowwise().mean()).cwiseProduct((X_hat.colwise() - X_hat.rowwise().mean()).conjugate()).lazyProduct(vec_of_ones);
+				tmp.real() = tmp.real() * (typename filter<T>::TVar)(gamma/(N));
+				tmp.imag() = tmp.imag() * (typename filter<T>::TVar)(gamma/(N));
 				TT = TT + tmp;
 			}
 			// ONV
-			if(alpha != 0) { // if only alpha, then filter = MVSDF
+			if(alpha != 0.0) { // if only alpha, then filter = MVSDF
 				// diagonal matrix P = constant * identity for additive white noise
 				tmp.real().setOnes(); tmp.imag().setZero();
-				tmp.real() = tmp.real() * alpha;
+				tmp.real() = tmp.real() * (typename filter<T>::TVar)(alpha);
 				TT = TT + tmp;
 			}
 		}
 
 		TT = TT.cwiseInverse(); //TT = TT.cwiseSqrt(); // T^(-1/2)
 
-
 		/* Compute h as ECPSDF filter (X * (X^(+) *  X)^(-1) * U) but transform by T (saves some computation) */
 
 		H.resize(input_row,input_col);
-		typename filter<T>::VecCplx HH(d);
-		HH.real().setZero(); HH.imag().setZero();
+		tmp.real().setZero(); tmp.imag().setZero();
 
 		// if number of input data samples is less than 5, then inverting (X^(+) *  X) can be done very quickly
 		// note that (X^(+) * X) is positive semi-definite
@@ -234,25 +232,25 @@ void OTSDF<T>::trainfilter() {
 		case 1:
 			{
 				typename filter<T>::VecCplx XX_inv; XX_inv.noalias() = (X_hat.adjoint() * TT.asDiagonal() * X_hat);
-				HH.noalias() = TT.asDiagonal() * X_hat * XX_inv.cwiseInverse() * U;
+				tmp.noalias() = TT.asDiagonal() * X_hat * XX_inv.cwiseInverse() * U;
 			}
 			break;
 		case 2:
 			{
 				typename filter<T>::MatCplx2 XX_inv; XX_inv.noalias() = (X_hat.adjoint() * TT.asDiagonal() * X_hat);
-				HH.noalias() = TT.asDiagonal() * X_hat * XX_inv.inverse() * U;
+				tmp.noalias() = TT.asDiagonal() * X_hat * XX_inv.inverse() * U;
 			}
 			break;
 		case 3:
 			{
 				typename filter<T>::MatCplx3 XX_inv; XX_inv.noalias() = (X_hat.adjoint() * TT.asDiagonal() * X_hat);
-				HH.noalias() = TT.asDiagonal() * X_hat * XX_inv.inverse() * U;
+				tmp.noalias() = TT.asDiagonal() * X_hat * XX_inv.inverse() * U;
 			}
 			break;
 		case 4:
 			{
 				typename filter<T>::MatCplx4 XX_inv; XX_inv.noalias() = (X_hat.adjoint() * TT.asDiagonal() * X_hat);
-				HH.noalias() = TT.asDiagonal() * X_hat * XX_inv.inverse() * U;
+				tmp.noalias() = TT.asDiagonal() * X_hat * XX_inv.inverse() * U;
 			}
 			break;
 		default:
@@ -267,7 +265,7 @@ void OTSDF<T>::trainfilter() {
 		//HH = HH.cwiseProduct(TT);
 
 		typename filter<T>::MatCplx H_hat;
-		H_hat = Eigen::Map<typename filter<T>::MatCplx>(HH.data(), input_row, input_col);
+		H_hat = Eigen::Map<typename filter<T>::MatCplx>(tmp.data(), input_row, input_col);
 
 		filter<T>::ifft_scalar(H, H_hat);
 
@@ -326,7 +324,7 @@ T OTSDF<T>::applyfilter(T scene) {
 		filter<T>::zero_pad(Filt, fftszN, fftszM, false);
 		filter<T>::fft_scalar(Filt, Filt_freq, fftszN, fftszM);
 
-		scene_freq = scene_freq.cwiseProduct(Filt_freq);
+		scene_freq = scene_freq.cwiseProduct(Filt_freq.conjugate());
 
 		filter<T>::ifft_scalar(simplane, scene_freq);
 		filter<T>::zero_pad(simplane, N, M, false);

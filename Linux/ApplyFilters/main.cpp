@@ -304,15 +304,24 @@ int main(int argc, char *argv[]) {
 		thefilter.trainfilter();
 
 		// apply
-		std::cout << "\tApplying the filter against authentic\n";
-		EigShowImg(thefilter.applyfilter(imgs[authimg.front()]));
+		std::cout << "\tApplying the filter against authentic: ";
+		Eigen::MatrixXd plane = thefilter.applyfilter(imgs[authimg.back()]);
 
-		std::cout << "\tApplying the filter against impostor\n";
-		EigShowImg(thefilter.applyfilter(imgs[impimg.back()]));
+		//get location of maximum
+		Eigen::MatrixXd::Index maxRow, maxCol;
+		double pmax = plane.maxCoeff(&maxRow, &maxCol);
+		std::cout << "Max: " << pmax << ", at: " << maxRow << "," << maxCol << "\n";
+
+		std::cout << "\tApplying the filter against impostor: ";
+		plane = thefilter.applyfilter(imgs[impimg.back()]);
+
+		pmax = plane.maxCoeff(&maxRow, &maxCol);
+		std::cout << "Max: " << pmax << ", at: " << maxRow << "," << maxCol << "\n";
+
 
 	}
 	// Not limited to RowVector, testing just cause...
-	OTSDF<Eigen::RowVectorXf> thefiltervec(pow(10,-5), 1-pow(10,-5), 0.5); // vector of floats
+	OTSDF<Eigen::RowVectorXf> thefiltervec(pow(10,-5), 1-pow(10,-5), 0.0); // vector of floats
 
 	Eigen::RowVectorXf truesig(15); truesig << 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0;
 
@@ -383,10 +392,18 @@ int main(int argc, char *argv[]) {
 
 	// apply against authentic
 	truesig << 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0;
-	std::cout << "Apply against authentic:\n";
-	std::cout << thefiltervec.applyfilter(truesig) << "\n";
+	std::cout << "\tApply against authentic: ";
+	Eigen::RowVectorXf plane = thefiltervec.applyfilter(truesig);
+	//get location of maximum
+	Eigen::RowVectorXf::Index maxRow, maxCol;
+	float pmax = plane.maxCoeff(&maxRow, &maxCol);
+	std::cout << "Max: " << pmax << ", at: " << maxRow << "," << maxCol << "\n";
+
 	// apply against impostor
-	truesig << 0, 1, 0, 1, 1, 0, 0.5, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0.5, 0.5, 0.75, 0;
-	std::cout << "Apply against impostor:\n";
-	std::cout << thefiltervec.applyfilter(truesig) << "\n";
+	truesig << 0, 1, 0, 1, 1, 0, 0.5, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0.5, 0.5, 0.75, 0;
+	std::cout << "\tApply against impostor: ";
+	plane = thefiltervec.applyfilter(truesig);
+	pmax = plane.maxCoeff(&maxRow, &maxCol);
+	std::cout << "Max: " << pmax << ", at: " << maxRow << "," << maxCol << "\n";
+
 }
