@@ -160,12 +160,12 @@ void loadimages(std::vector<Eigen::MatrixXd> &imgs, std::string directory, int w
 					imgChk.push_back(tolower(name[i]));
 				}
 			}
-			for(i=0; i<(Compat.size()); i++) { // compare with compatibility list
+			for(i=0; i<(int)(Compat.size()); i++) { // compare with compatibility list
 				if(imgChk.compare(Compat[i]) == 0) {
 					break;
 				}
 			}
-			if(i < (Compat.size())) { // image is of compatible format
+			if(i < (int)(Compat.size())) { // image is of compatible format
 				ct++;
 				loadname = directory + name;
 				std::cout << "Image " << ct << ":";
@@ -305,10 +305,10 @@ int main(int argc, char *argv[]) {
 
 		// apply
 		std::cout << "\tApplying the filter against authentic\n";
-		EigShowImg(thefilter.applyfilter(imgs[authimg.back()]));
+		EigShowImg(thefilter.applyfilter(imgs[authimg.front()]));
 
 		std::cout << "\tApplying the filter against impostor\n";
-		//EigShowImg(thefilter.applyfilter(imgs[impimg.back()]));
+		EigShowImg(thefilter.applyfilter(imgs[impimg.back()]));
 
 	}
 	// Not limited to RowVector, testing just cause...
@@ -378,4 +378,15 @@ int main(int argc, char *argv[]) {
 	thefiltervec.add_imp(truesig);
 
 	thefiltervec.trainfilter();
+
+	truesig.resize(20);
+
+	// apply against authentic
+	truesig << 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0;
+	std::cout << "Apply against authentic:\n";
+	std::cout << thefiltervec.applyfilter(truesig) << "\n";
+	// apply against impostor
+	truesig << 0, 1, 0, 1, 1, 0, 0.5, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0.5, 0.5, 0.75, 0;
+	std::cout << "Apply against impostor:\n";
+	std::cout << thefiltervec.applyfilter(truesig) << "\n";
 }

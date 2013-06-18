@@ -41,9 +41,9 @@ private:
 protected:
 	TMat X;											// matrix of samples (authentic and impostor) in the spatial domain
 	MatCplx X_hat;									// matrix of samples (authentic and impostor) in the frequency domain
-	VecCplx U;											// vector of zeros and ones designating authentic and impostors in X
+	VecCplx U;										// vector of zeros and ones designating authentic and impostors in X
 
-	VecCplx H_hat;									// the filter itself in the frequency domain
+	T H;											// the filter itself
 
 	int input_row, input_col;						// size of first sample added (new inputs will be resized - padded or cropped - to this)
 	int auth_count, imp_count;						// authentic and impostor counts
@@ -60,7 +60,7 @@ protected:
 	void cleanclass(void) {
 		if(cleanupaftertrain) {
 			X.resize(0,0); X_hat.resize(0,0); U.resize(0);
-			auth_count = 0; imp_count = 0; input_row = 0; input_col = 0;
+			auth_count = 0; imp_count = 0;
 		}
 	}
 
@@ -74,7 +74,7 @@ public:
 	}
 	virtual ~filter() {
 		// resize to zero to release memory
-		H_hat.resize(0);
+		H.resize(0,0);
 		cleanupaftertrain = true; cleanclass();
 	}
 
@@ -92,7 +92,7 @@ public:
 
 	virtual void trainfilter() = 0;						// train the filter - this varies with each filter type
 
-	virtual T applyfilter(T const& scene) = 0;			// apply the filter to a scene, this may vary per filter design
+	virtual T applyfilter(T scene) = 0;					// apply the filter to a scene, this may vary per filter design
 
 	EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
@@ -128,32 +128,30 @@ private:
 	using filter<T>::auth_count;
 	using filter<T>::imp_count;
 	using filter<T>::X_hat;
-	using filter<T>::H_hat;
+	using filter<T>::H;
 	using filter<T>::U;
 
-	typename filter<T>::VecCplx TT;					// diagonal matrix (in our case a vector) containing ASM, ONV, and ACE components
+	bool trainedflag;
 
 public:
 	// constructors
 	OTSDF(double alph, double bet, double gam) {	// initializes all three parameters
-		alpha = alph; beta = bet; gamma = gam;
+		alpha = alph; beta = bet; gamma = gam; trainedflag = false;
 	}
 	OTSDF(double lam) {								// initializes filter as a trade-off between ACE and ONV, ignoring ASM
-		alpha = 1 - lam; beta = lam; gamma = 0;
+		alpha = 1 - lam; beta = lam; gamma = 0; trainedflag = false;
 	}
 	OTSDF() {										// initializes the parameters to their defaults
-		alpha = pow(10,-5); beta = 1 - alpha; gamma = 0;
+		alpha = pow(10,-5); beta = 1 - alpha; gamma = 0; trainedflag = false;
 	}
 	// destructor
-	~OTSDF() {
-		TT.resize(0);
-	}
+	~OTSDF() { }
 
 	double alpha, beta, gamma;						// training parameters
 
 	void trainfilter();								// train the filter, putting data into base class variable H
 
-	T applyfilter(T const& scene);					// apply the filter to a scene, returning the resulting similarity plane
+	T applyfilter(T scene);					// apply the filter to a scene, returning the resulting similarity plane
 
 	EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
@@ -188,7 +186,7 @@ void OTSDF<T>::trainfilter() {
 		int d = input_row * input_col;
 
 		/* Compute T matrix, labeled as TT cause T is the template type */
-
+		typename filter<T>::VecCplx TT;
 		TT.resize(d); TT.real().setZero(); TT.imag().setZero();
 
 		if(alpha != 0.0 || beta != 0.0 || gamma != 0.0) {
@@ -221,47 +219,77 @@ void OTSDF<T>::trainfilter() {
 			}
 		}
 
-		TT.cwiseInverse(); TT.cwiseSqrt(); // T^(-1/2)
+		TT = TT.cwiseInverse(); //TT = TT.cwiseSqrt(); // T^(-1/2)
 
 
-		/* Compute h as ECPSDF filter (X * (X^(+) *  X)^(-1) * U) but use T in application (saves some computation) */
+		/* Compute h as ECPSDF filter (X * (X^(+) *  X)^(-1) * U) but transform by T (saves some computation) */
 
-		H_hat.resize(d);  H_hat.real().setZero(); H_hat.imag().setZero();
+		H.resize(input_row,input_col);
+		typename filter<T>::VecCplx HH(d);
+		HH.real().setZero(); HH.imag().setZero();
 
 		// if number of input data samples is less than 5, then inverting (X^(+) *  X) can be done very quickly
 		// note that (X^(+) * X) is positive semi-definite
 		switch(N) {
 		case 1:
 			{
-				typename filter<T>::VecCplx XX_inv; XX_inv.noalias() = (X_hat.adjoint() * X_hat);
-				H_hat.noalias() = X_hat * XX_inv.cwiseInverse() * U;
+				typename filter<T>::VecCplx XX_inv; XX_inv.noalias() = (X_hat.adjoint() * TT.asDiagonal() * X_hat);
+				HH.noalias() = TT.asDiagonal() * X_hat * XX_inv.cwiseInverse() * U;
 			}
 			break;
 		case 2:
 			{
-				typename filter<T>::MatCplx2 XX_inv; XX_inv.noalias() = (X_hat.adjoint() * X_hat);
-				H_hat.noalias() = X_hat * XX_inv.inverse() * U;
+				typename filter<T>::MatCplx2 XX_inv; XX_inv.noalias() = (X_hat.adjoint() * TT.asDiagonal() * X_hat);
+				HH.noalias() = TT.asDiagonal() * X_hat * XX_inv.inverse() * U;
 			}
 			break;
 		case 3:
 			{
-				typename filter<T>::MatCplx3 XX_inv; XX_inv.noalias() = (X_hat.adjoint() * X_hat);
-				H_hat.noalias() = X_hat * XX_inv.inverse() * U;
+				typename filter<T>::MatCplx3 XX_inv; XX_inv.noalias() = (X_hat.adjoint() * TT.asDiagonal() * X_hat);
+				HH.noalias() = TT.asDiagonal() * X_hat * XX_inv.inverse() * U;
 			}
 			break;
 		case 4:
 			{
-				typename filter<T>::MatCplx4 XX_inv; XX_inv.noalias() = (X_hat.adjoint() * X_hat);
-				H_hat.noalias() = X_hat * XX_inv.inverse() * U;
+				typename filter<T>::MatCplx4 XX_inv; XX_inv.noalias() = (X_hat.adjoint() * TT.asDiagonal() * X_hat);
+				HH.noalias() = TT.asDiagonal() * X_hat * XX_inv.inverse() * U;
 			}
 			break;
 		default:
 			{
-				typename filter<T>::MatCplx XX_inv; XX_inv.noalias() = (X_hat.adjoint() * X_hat);
+				typename filter<T>::MatCplx XX_inv; XX_inv.noalias() = (X_hat.adjoint() * TT.asDiagonal() * X_hat);
 				// TODO: invert matrix greater than 4x4
 			}
 			break;
 		}
+
+		// transform the filter by T
+		//HH = HH.cwiseProduct(TT);
+
+		typename filter<T>::MatCplx H_hat;
+		H_hat = Eigen::Map<typename filter<T>::MatCplx>(HH.data(), input_row, input_col);
+
+		filter<T>::ifft_scalar(H, H_hat);
+
+		// rotate 90 degrees
+		if(input_row > 1 && input_col > 1) {
+			H.transposeInPlace();
+		}
+		if(input_row > 1 && input_col == 1) {
+			// swap row
+			int j = input_row-1;
+			for(int i=0; i<floor(input_row/2); i++) {
+				H.row(i).swap(H.row(j)); j--;
+			}
+		} else {
+			// swap columns
+			int j = input_col-1;
+			for(int i=0; i<floor(input_col/2); i++) {
+				H.col(i).swap(H.col(j)); j--;
+			}
+		}
+
+		trainedflag = true;
 		filter<T>::cleanclass();
 	}
 }
@@ -281,24 +309,28 @@ void OTSDF<T>::trainfilter() {
 
  */
 template <class T>
-T OTSDF<T>::applyfilter(T const& scene) {
-	int fftszN = scene.rows() + input_row-1;
-	int fftszM = scene.cols() + input_col-1;
+T OTSDF<T>::applyfilter(T scene) {
+	int N = scene.rows();
+	int M = scene.cols();
+	int fftszN = ((N + input_row-1) > 0) ? (N + input_row-1) : 1;
+	int fftszM = ((M + input_col-1) > 0) ? (M + input_col-1) : 1;
 
-	// put scene in freq domain and pad accordingly to prevent circular correlation
-	typename filter<T>::MatCplx scene_freq;
+	T simplane(fftszN,fftszM);
+	if(trainedflag) {
+		// put scene in freq domain and pad accordingly to prevent circular correlation
+		typename filter<T>::MatCplx scene_freq(fftszN, fftszM), Filt_freq(fftszN, fftszM);
+		T Filt = H;
 
-	filter<T>::fft_scalar(scene, scene_freq, scene.rows(), scene.cols());
-	filter<T>::zero_pad_cplx(scene_freq, fftszN, fftszM, false);
+		filter<T>::zero_pad(scene, fftszN, fftszM, false);
+		filter<T>::fft_scalar(scene, scene_freq, fftszN, fftszM);
+		filter<T>::zero_pad(Filt, fftszN, fftszM, false);
+		filter<T>::fft_scalar(Filt, Filt_freq, fftszN, fftszM);
 
-	// pad and conjugate transpose the filter
-	//H_hat.adjointInPlace();
-	//filter<T>::zero_pad_cplx(H_hat, fftszN, fftszM, false);
+		scene_freq = scene_freq.cwiseProduct(Filt_freq);
 
-	T simplane(fftszN,fftszM); //simplane.setZero();
-	//filter<T>::ifft_scalar(simplane, H_hat * (TT * scene_freq), fftszN, fftszM);
-	//filter<T>::zero_pad(simplane, scene.rows(), scene.cols(), false);
-
+		filter<T>::ifft_scalar(simplane, scene_freq);
+		filter<T>::zero_pad(simplane, N, M, false);
+	}
 	return simplane;
 }
 
@@ -638,7 +670,7 @@ int filter<T>::get_rank(TMat const& signal) {
 	Eigen::JacobiSVD<TMat> svd(signal,0);
 	TVec vals = svd.singularValues();
 	for(int i = 0; i<vals.rows()*vals.cols(); i++) {
-		if((int)(vals(i)) != 0) {
+		if((vals(i) >= 0.05) || (vals(i) <= -0.05)) {
 			rank++; // count non-zero values
 		}
 	}
