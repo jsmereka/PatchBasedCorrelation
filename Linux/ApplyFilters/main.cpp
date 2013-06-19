@@ -220,12 +220,12 @@ int main(int argc, char *argv[]) {
 	if(imgs.size() > 0 && authimg.size() > 0) {
 		bool nontested = true; unsigned int i = 0;
 		// build filters
-		OTSDF<Eigen::MatrixXd> thefilter(pow(10,-5), 1-pow(10,-5), 0.5); // matrix of doubles
+		OTSDF<Eigen::MatrixXd> thefilter(pow(10,-5), 1-pow(10,-5), 0.0); // matrix of doubles
 		thefilter.computerank(true); // is defaulted as true, but we can set it anyway
 
 		// save one auth img and one imp image for comparison
 
-		for(unsigned int j=0; j<authimg.size()-1; j++) {
+		for(unsigned int j=0; j<authimg.size()-1; j++) { // use all but one to train
 			i = authimg[j];
 			if(imgs[i].SizeMinusOne != 0) {
 
@@ -285,13 +285,13 @@ int main(int argc, char *argv[]) {
 					//EigShowImg(imgs[i]);
 					nontested = false; // only need to run test once
 				} else {
-					thefilter.add_auth(imgs[j]);
+					thefilter.add_auth(imgs[i]);
 				}
 			} // endif
 		} // endfor
 
 		if(impimg.size() > 0) {
-			for(unsigned int j=0; j<impimg.size()-1; j++) {
+			for(unsigned int j=0; j<impimg.size()-1; j++) { // use all but one to train
 				i = impimg[j];
 				if(imgs[i].SizeMinusOne != 0) {
 					thefilter.add_imp(imgs[i]);
@@ -304,17 +304,24 @@ int main(int argc, char *argv[]) {
 		thefilter.trainfilter();
 
 		// apply
-		std::cout << "\tApplying the filter against authentic: ";
-		Eigen::MatrixXd plane = thefilter.applyfilter(imgs[authimg.back()]);
-
-		//get location of maximum
-		Eigen::MatrixXd::Index maxRow, maxCol;
+		std::cout << "\tApplying the filter against trained authentic: ";
+		Eigen::MatrixXd plane = thefilter.applyfilter(imgs[authimg.front()]);
+		Eigen::MatrixXd::Index maxRow, maxCol; //get location of maximum
 		double pmax = plane.maxCoeff(&maxRow, &maxCol);
 		std::cout << "Max: " << pmax << ", at: " << maxRow << "," << maxCol << "\n";
 
-		std::cout << "\tApplying the filter against impostor: ";
-		plane = thefilter.applyfilter(imgs[impimg.back()]);
+		std::cout << "\tApplying the filter against trained impostor: ";
+		plane = thefilter.applyfilter(imgs[impimg.front()]);
+		pmax = plane.maxCoeff(&maxRow, &maxCol);
+		std::cout << "Max: " << pmax << ", at: " << maxRow << "," << maxCol << "\n";
 
+		std::cout << "\tApplying the filter against untrained authentic: ";
+		plane = thefilter.applyfilter(imgs[authimg.back()]);
+		pmax = plane.maxCoeff(&maxRow, &maxCol);
+		std::cout << "Max: " << pmax << ", at: " << maxRow << "," << maxCol << "\n";
+
+		std::cout << "\tApplying the filter against untrained impostor: ";
+		plane = thefilter.applyfilter(imgs[impimg.back()]);
 		pmax = plane.maxCoeff(&maxRow, &maxCol);
 		std::cout << "Max: " << pmax << ", at: " << maxRow << "," << maxCol << "\n";
 

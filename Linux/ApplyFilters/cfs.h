@@ -31,11 +31,10 @@ public:
 	typedef Eigen::Matrix<TCplx, 1, Eigen::Dynamic> RowVecCplx;
 	typedef Eigen::Matrix<TVar, Eigen::Dynamic, 1> TVec;
 
-
 private:
 	bool check_rank(T signal, bool auth);			// check the matrix rank against the authentic or imposter samples
 	int get_rank(TMat const& signal);				// get the matrix rank and return it as an int
-	void addtoX(T const& signal);					// adds the data sample to X
+	void addtoX(T &signal);							// adds the data sample to X
 	void addtoU(bool auth);							// add a 1 or 0 to vector U based on authentic or impostor sample
 
 protected:
@@ -47,9 +46,13 @@ protected:
 
 	int input_row, input_col;						// size of first sample added (new inputs will be resized - padded or cropped - to this)
 	int auth_count, imp_count;						// authentic and impostor counts
+
 	bool docomputerank;								// can turn on or off rank computation before adding samples (faster if off)
 	bool cutfromcenter;								// zero-pad or crop from the center if true, otherwise top left corner
 	bool cleanupaftertrain;							// if the filter will not be retrained at any point, clean up X, X_hat, and U after training
+	bool zeropadtrnimgs;							// zero pad the training samples to prevent the effects of circular correlation during training
+	bool normalizeimgs;								// normalize the training samples before putting them into frequency domain (reduces variation)
+	bool whitenimgs;								// whiten the average spectrum of the data samples
 
 	void zero_pad(T &signal, const int siz1, const int siz2, bool center);// resizes sample window (zero pad/crop) based on input size
 	void zero_pad_cplx(MatCplx &signal, const int siz1, const int siz2, bool center);// resizes sample window (zero pad/crop) based on input size (complex matrices)
@@ -69,8 +72,9 @@ public:
 		// initialize counts
 		auth_count = 0; imp_count = 0;
 		input_row = 0; input_col = 0;
-		docomputerank = true; cutfromcenter = false;
-		cleanupaftertrain = true;
+		docomputerank = false; cutfromcenter = false;
+		cleanupaftertrain = false; zeropadtrnimgs = false;
+		normalizeimgs = false; whitenimgs = false;
 	}
 	virtual ~filter() {
 		// resize to zero to release memory
@@ -78,17 +82,18 @@ public:
 		cleanupaftertrain = true; cleanclass();
 	}
 
-
-
 	bool add_auth(T const& newsig);						// add an authentic class sample for training
 	bool add_imp(T const& newsig);						// add an impostor class sample for training
 
 	inline int getauthcount(void) { return auth_count; }	// # of authentics added
 	inline int getimpcount(void) { return imp_count; }		// # of impostors added
+
 	inline void computerank(bool tmp) { docomputerank = tmp; } // set whether to compute matrix rank (check if similar sample has been added already)
 	inline void adjustfromcenter(bool tmp) { cutfromcenter = tmp; } // set whether to crop/pad from the center or top left corner of the sample
-
 	inline void noretraining(bool tmp) { cleanupaftertrain = tmp; } // no retraining is going to be used, clean up unnecessary memory
+	inline void zeropadtrndata(bool tmp) { zeropadtrnimgs = tmp; } // set whether to zeropad the training samples to prevent effects of circular correlation during training
+	inline void normtrndata(bool tmp) { normalizeimgs = tmp; } // set whether to normalize the training data samples (reducing variation)
+	inline void whitenspectrum(bool tmp) { whitenimgs = tmp; } // whiten the average spectrum of the training samples (results in sharper peaks)
 
 	virtual void trainfilter() = 0;						// train the filter - this varies with each filter type
 
@@ -123,6 +128,10 @@ public:
 template <class T>
 class OTSDF : public filter<T> {
 private:
+	using filter<T>::zeropadtrnimgs;
+	using filter<T>::whitenimgs;
+	using filter<T>::cleanupaftertrain;
+	using filter<T>::cutfromcenter;
 	using filter<T>::input_row;
 	using filter<T>::input_col;
 	using filter<T>::auth_count;
@@ -151,7 +160,7 @@ public:
 
 	void trainfilter();								// train the filter, putting data into base class variable H
 
-	T applyfilter(T scene);					// apply the filter to a scene, returning the resulting similarity plane
+	T applyfilter(T scene);							// apply the filter to a scene, returning the resulting similarity plane
 
 	EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
@@ -169,8 +178,8 @@ public:
 
   h = derived filter, complex with dimension (d x 1), d = input_row * input_col, for 2D signals, it will be reshaped to (input_row x input_col)
   X = column matrix of input data, complex matrix with dimension (d x N), N = auth_count + imp_count
-  D = diagonal matrix containing average power spectral density of the training data, complex matrix with dimension (d x d), diagonal matrix Di = Xi * Conj(Xi) = power spectrum of xi, D = 1/N * SUM{ Di }
-  S = diagonal matrix containing similarity in correlation planes to the true class mean, complex matrix with dimension (d x d), S = 1/(N) * SUM{ (Xi - mean(Xi)) * Conj(Xi - mean(Xi)) }
+  D = diagonal matrix containing average power spectral density of the training data, complex matrix with dimension (d x d), diagonal matrix Di = Xi * Conj(Xi) = power spectrum of xi, D = 1/(N*d) * SUM{ Di }
+  S = diagonal matrix containing similarity in correlation planes to the true class mean, complex matrix with dimension (d x d), S = 1/(N*d) * SUM{ (Xi - mean(Xi)) * Conj(Xi - mean(Xi)) }
   P = diagonal matrix containing the power spectral density of the input noise, complex matrix with dimension (d x d), P = constant * identity matrix for additive white noise
 
   @author   Jonathon M. Smereka
@@ -184,90 +193,123 @@ void OTSDF<T>::trainfilter() {
 	int N = auth_count + imp_count;
 	if(N > 0) {
 		int d = input_row * input_col;
+		int rowmult = 1, colmult = 1;
+		if(zeropadtrnimgs) {
+			if(input_row > 1) {
+				rowmult = 2;
+			}
+			if(input_col > 1) {
+				colmult = 2;
+			}
+			d = d * rowmult * colmult;
+		}
 
 		/* Compute T matrix, labeled as TT cause T is the template type */
-		typename filter<T>::VecCplx TT(d);
-		typename filter<T>::VecCplx tmp(d);
-		TT.real().setZero(); TT.imag().setZero();
+		typename filter<T>::MatCplx X_hat2; // only have to use this if whitenimgs && !cleanupaftertrain
 
-		if(alpha == 0.0 && beta == 0.0 && gamma == 0.0) {
-			TT.real().setOnes(); // if no alpha, beta, or gamma, then filter = MVSDF under white noise = ECPSDF
-		} else {
-			typename filter<T>::VecCplx vec_of_ones(N); vec_of_ones.real().setOnes(); vec_of_ones.imag().setZero();
 
-			// ACE
-			if(beta != 0.0) { // if only beta, then filter = MACE
-				// diagonal matrix Di = Xi * Conj(Xi) = power spectrum of xi, D = 1/(N) * SUM{ Di }
-				TT.noalias() = X_hat.cwiseProduct(X_hat.conjugate()).lazyProduct(vec_of_ones);
-				TT.real() = TT.real() * (typename filter<T>::TVar)(beta/(N));
-				TT.imag() = TT.imag() * (typename filter<T>::TVar)(beta/(N));
+		// build filter
+		{
+			typename filter<T>::VecCplx TT(d);
+			typename filter<T>::VecCplx tmp(d);
+
+			TT.real().setZero(); TT.imag().setZero();
+
+			if(alpha == 0.0 && beta == 0.0 && gamma == 0.0 && !whitenimgs) {
+				TT.real().setOnes(); // if no alpha, beta, or gamma, then filter = MVSDF under white noise = ECPSDF
+			} else {
+				typename filter<T>::VecCplx vec_of_ones(N);
+				vec_of_ones.real().setOnes(); vec_of_ones.imag().setZero();
+				// ASM
+				if(gamma != 0.0) { // if only gamma, then filter = constrained MACH
+					// diagonal matrix S = 1/(N*d) * SUM{ (Xi - mean(Xi)) * Conj(Xi - mean(Xi)) }
+					TT.noalias() = (X_hat.colwise() - X_hat.rowwise().mean()).cwiseProduct((X_hat.colwise() - X_hat.rowwise().mean()).conjugate()).lazyProduct(vec_of_ones);
+					TT.real() = TT.real() * (typename filter<T>::TVar)(gamma/(N*d));
+					TT.imag() = TT.imag() * (typename filter<T>::TVar)(gamma/(N*d));
+				}
+				// ONV
+				if(alpha != 0.0) { // if only alpha, then filter = MVSDF
+					// diagonal matrix P = constant * identity for additive white noise
+					tmp.real().setOnes(); tmp.imag().setZero();
+					tmp.real() = tmp.real() * (typename filter<T>::TVar)(alpha);
+					TT = TT + tmp;
+				}
+				// ACE
+				if(beta != 0.0 || whitenimgs) { // if only beta, then filter = MACE
+					// diagonal matrix Di = Xi * Conj(Xi) = power spectrum of xi, D = 1/(N*d) * SUM{ Di }
+					tmp.noalias() = X_hat.cwiseProduct(X_hat.conjugate()).lazyProduct(vec_of_ones);
+					if(whitenimgs) {
+						if(!cleanupaftertrain) {
+							X_hat2 = X_hat; // make copy to preserve for after training
+						}
+						for(int i=0; i<N; i++) {
+							X_hat.col(i) = X_hat.col(i).cwiseQuotient(tmp.cwiseInverse());
+						}
+					}
+					if(beta != 0.0) {
+						tmp.real() = tmp.real() * (typename filter<T>::TVar)(beta/(N*d));
+						tmp.imag() = tmp.imag() * (typename filter<T>::TVar)(beta/(N*d));
+						TT = TT + tmp;
+					}
+				}
 			}
-			// ASM
-			if(gamma != 0.0) { // if only gamma, then filter = constrained MACH
-				// diagonal matrix S = 1/(N) * SUM{ (Xi - mean(Xi)) * Conj(Xi - mean(Xi)) }
-				tmp.noalias() = (X_hat.colwise() - X_hat.rowwise().mean()).cwiseProduct((X_hat.colwise() - X_hat.rowwise().mean()).conjugate()).lazyProduct(vec_of_ones);
-				tmp.real() = tmp.real() * (typename filter<T>::TVar)(gamma/(N));
-				tmp.imag() = tmp.imag() * (typename filter<T>::TVar)(gamma/(N));
-				TT = TT + tmp;
+
+
+
+			TT = TT.cwiseInverse(); //TT = TT.cwiseSqrt(); // T^(-1/2)
+
+			/* Compute h as ECPSDF filter (X * (X^(+) *  X)^(-1) * U) but transform by T (saves some computation) */
+			tmp.real().setZero(); tmp.imag().setZero();
+
+			// if number of input data samples is less than 5, then inverting (X^(+) *  X) can be done very quickly
+			// note that (X^(+) * X) is positive semi-definite
+			switch(N) {
+			case 1:
+				{
+					typename filter<T>::VecCplx XX_inv; XX_inv.noalias() = (X_hat.adjoint() * TT.asDiagonal() * X_hat);
+					tmp.noalias() = TT.asDiagonal() * X_hat * XX_inv.cwiseInverse() * U;
+				}
+				break;
+			case 2:
+				{
+					typename filter<T>::MatCplx2 XX_inv; XX_inv.noalias() = (X_hat.adjoint() * TT.asDiagonal() * X_hat);
+					tmp.noalias() = TT.asDiagonal() * X_hat * XX_inv.inverse() * U;
+				}
+				break;
+			case 3:
+				{
+					typename filter<T>::MatCplx3 XX_inv; XX_inv.noalias() = (X_hat.adjoint() * TT.asDiagonal() * X_hat);
+					tmp.noalias() = TT.asDiagonal() * X_hat * XX_inv.inverse() * U;
+				}
+				break;
+			case 4:
+				{
+					typename filter<T>::MatCplx4 XX_inv; XX_inv.noalias() = (X_hat.adjoint() * TT.asDiagonal() * X_hat);
+					tmp.noalias() = TT.asDiagonal() * X_hat * XX_inv.inverse() * U;
+				}
+				break;
+			default:
+				{
+					typename filter<T>::MatCplx XX_inv; XX_inv.noalias() = (X_hat.adjoint() * TT.asDiagonal() * X_hat);
+					// TODO: invert matrix greater than 4x4
+				}
+				break;
 			}
-			// ONV
-			if(alpha != 0.0) { // if only alpha, then filter = MVSDF
-				// diagonal matrix P = constant * identity for additive white noise
-				tmp.real().setOnes(); tmp.imag().setZero();
-				tmp.real() = tmp.real() * (typename filter<T>::TVar)(alpha);
-				TT = TT + tmp;
-			}
+
+			// transform the filter by T
+			//HH = HH.cwiseProduct(TT);
+
+			typename filter<T>::MatCplx H_hat;
+			H_hat = Eigen::Map<typename filter<T>::MatCplx>(tmp.data(), input_row*rowmult, input_col*colmult);
+			H.resize(input_row*rowmult,input_col*colmult);
+			filter<T>::ifft_scalar(H, H_hat);
 		}
 
-		TT = TT.cwiseInverse(); //TT = TT.cwiseSqrt(); // T^(-1/2)
+		// variable H has the filter in the spatial domain
 
-		/* Compute h as ECPSDF filter (X * (X^(+) *  X)^(-1) * U) but transform by T (saves some computation) */
-
-		H.resize(input_row,input_col);
-		tmp.real().setZero(); tmp.imag().setZero();
-
-		// if number of input data samples is less than 5, then inverting (X^(+) *  X) can be done very quickly
-		// note that (X^(+) * X) is positive semi-definite
-		switch(N) {
-		case 1:
-			{
-				typename filter<T>::VecCplx XX_inv; XX_inv.noalias() = (X_hat.adjoint() * TT.asDiagonal() * X_hat);
-				tmp.noalias() = TT.asDiagonal() * X_hat * XX_inv.cwiseInverse() * U;
-			}
-			break;
-		case 2:
-			{
-				typename filter<T>::MatCplx2 XX_inv; XX_inv.noalias() = (X_hat.adjoint() * TT.asDiagonal() * X_hat);
-				tmp.noalias() = TT.asDiagonal() * X_hat * XX_inv.inverse() * U;
-			}
-			break;
-		case 3:
-			{
-				typename filter<T>::MatCplx3 XX_inv; XX_inv.noalias() = (X_hat.adjoint() * TT.asDiagonal() * X_hat);
-				tmp.noalias() = TT.asDiagonal() * X_hat * XX_inv.inverse() * U;
-			}
-			break;
-		case 4:
-			{
-				typename filter<T>::MatCplx4 XX_inv; XX_inv.noalias() = (X_hat.adjoint() * TT.asDiagonal() * X_hat);
-				tmp.noalias() = TT.asDiagonal() * X_hat * XX_inv.inverse() * U;
-			}
-			break;
-		default:
-			{
-				typename filter<T>::MatCplx XX_inv; XX_inv.noalias() = (X_hat.adjoint() * TT.asDiagonal() * X_hat);
-				// TODO: invert matrix greater than 4x4
-			}
-			break;
+		if(zeropadtrnimgs) {
+			filter<T>::zero_pad(H,input_row,input_col,cutfromcenter);
 		}
-
-		// transform the filter by T
-		//HH = HH.cwiseProduct(TT);
-
-		typename filter<T>::MatCplx H_hat;
-		H_hat = Eigen::Map<typename filter<T>::MatCplx>(tmp.data(), input_row, input_col);
-
-		filter<T>::ifft_scalar(H, H_hat);
 
 		// rotate 90 degrees
 		if(input_row > 1 && input_col > 1) {
@@ -289,6 +331,10 @@ void OTSDF<T>::trainfilter() {
 
 		trainedflag = true;
 		filter<T>::cleanclass();
+		if(whitenimgs && !cleanupaftertrain) {
+			X_hat = X_hat2;
+			X_hat2.resize(0,0);
+		}
 	}
 }
 
@@ -319,15 +365,15 @@ T OTSDF<T>::applyfilter(T scene) {
 		typename filter<T>::MatCplx scene_freq(fftszN, fftszM), Filt_freq(fftszN, fftszM);
 		T Filt = H;
 
-		filter<T>::zero_pad(scene, fftszN, fftszM, false);
+		filter<T>::zero_pad(scene, fftszN, fftszM, cutfromcenter);
 		filter<T>::fft_scalar(scene, scene_freq, fftszN, fftszM);
-		filter<T>::zero_pad(Filt, fftszN, fftszM, false);
+		filter<T>::zero_pad(Filt, fftszN, fftszM, cutfromcenter);
 		filter<T>::fft_scalar(Filt, Filt_freq, fftszN, fftszM);
 
-		scene_freq = scene_freq.cwiseProduct(Filt_freq.conjugate());
+		scene_freq = scene_freq.cwiseProduct(Filt_freq);
 
 		filter<T>::ifft_scalar(simplane, scene_freq);
-		filter<T>::zero_pad(simplane, N, M, false);
+		filter<T>::zero_pad(simplane, N, M, cutfromcenter);
 	}
 	return simplane;
 }
@@ -391,8 +437,13 @@ bool filter<T>::check_rank(T signal, bool auth) {
 	int N = signal.rows();
 	int M = signal.cols();
 	int sz = N*M;
+
+	if(normalizeimgs) {
+		signal = signal / (255);
+	}
+
 	if(auth_count == 0 && imp_count == 0) {
-		if(signal.cols() > 1 && docomputerank) {
+		if((signal.cols() > 1 || signal.rows() > 1) && docomputerank) {
 			rank = get_rank(signal);
 		}
 		if(rank > 0) {
@@ -464,11 +515,19 @@ bool filter<T>::check_rank(T signal, bool auth) {
 
  */
 template <class T>
-void filter<T>::addtoX(T const& signal) {
+void filter<T>::addtoX(T &signal) {
 	int N = signal.rows();
 	int M = signal.cols();
 	int sz;
-
+	if(zeropadtrnimgs) {
+		if(N > 1) {
+			N = N * 2;
+		}
+		if(M > 1) {
+			M = M * 2;
+		}
+		zero_pad(signal, N, M, cutfromcenter);
+	}
 	// compute fft
 	MatCplx signal_hat;
 	fft_scalar(signal, signal_hat, N, M); // may need to add padding here eventually
@@ -522,10 +581,10 @@ void filter<T>::addtoU(bool auth) {
 		imp_count++;
 		if(U.rows()*U.cols() == 0) {
 			U.resize(1);
-			U(0).real() = 0; U(0).imag() = 0;
+			U(0).real() = -1; U(0).imag() = 0;
 		} else {
 			U.conservativeResize(auth_count+imp_count);
-			U(auth_count+imp_count-1).real() = 0;
+			U(auth_count+imp_count-1).real() = -1;
 			U(auth_count+imp_count-1).imag() = 0;
 		}
 	}
