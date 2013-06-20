@@ -5,6 +5,7 @@
 #include <dirent.h>
 
 #include "cfs.h"
+#include "otsdf.h"
 #include <Eigen/Core>
 #include <Eigen/Dense>
 
