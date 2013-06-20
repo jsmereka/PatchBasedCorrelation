@@ -50,9 +50,9 @@ protected:
 	bool docomputerank;								// can turn on or off rank computation before adding samples (faster if off)
 	bool cutfromcenter;								// zero-pad or crop from the center if true, otherwise top left corner
 	bool cleanupaftertrain;							// if the filter will not be retrained at any point, clean up X, X_hat, and U after training
-	bool zeropadtrnimgs;							// zero pad the training samples to prevent the effects of circular correlation during training
-	bool normalizeimgs;								// normalize the training samples before putting them into frequency domain (reduces variation)
+	bool zeropadtrnimgs;							// zero pad the training samples to prevent the effects of circular correlation during training (much more memory intensive)
 	bool whitenimgs;								// whiten the average spectrum of the data samples
+	bool trainedflag;								// simple flag to see if there is a trained filter to be used
 
 	void zero_pad(T &signal, const int siz1, const int siz2, bool center);// resizes sample window (zero pad/crop) based on input size
 	void zero_pad_cplx(MatCplx &signal, const int siz1, const int siz2, bool center);// resizes sample window (zero pad/crop) based on input size (complex matrices)
@@ -72,9 +72,9 @@ public:
 		// initialize counts
 		auth_count = 0; imp_count = 0;
 		input_row = 0; input_col = 0;
-		docomputerank = false; cutfromcenter = false;
-		cleanupaftertrain = false; zeropadtrnimgs = false;
-		normalizeimgs = false; whitenimgs = false;
+		docomputerank = true; cutfromcenter = false;
+		cleanupaftertrain = true; zeropadtrnimgs = false;
+		whitenimgs = false; trainedflag = false;
 	}
 	virtual ~filter() {
 		// resize to zero to release memory
@@ -92,12 +92,11 @@ public:
 	inline void adjustfromcenter(bool tmp) { cutfromcenter = tmp; } // set whether to crop/pad from the center or top left corner of the sample
 	inline void noretraining(bool tmp) { cleanupaftertrain = tmp; } // no retraining is going to be used, clean up unnecessary memory
 	inline void zeropadtrndata(bool tmp) { zeropadtrnimgs = tmp; } // set whether to zeropad the training samples to prevent effects of circular correlation during training
-	inline void normtrndata(bool tmp) { normalizeimgs = tmp; } // set whether to normalize the training data samples (reducing variation)
 	inline void whitenspectrum(bool tmp) { whitenimgs = tmp; } // whiten the average spectrum of the training samples (results in sharper peaks)
 
 	virtual void trainfilter() = 0;						// train the filter - this varies with each filter type
 
-	virtual T applyfilter(T scene) = 0;					// apply the filter to a scene, this may vary per filter design
+	virtual T applyfilter(T scene);						// apply the filter to a scene, this may vary per filter design
 
 	EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
@@ -132,6 +131,7 @@ private:
 	using filter<T>::whitenimgs;
 	using filter<T>::cleanupaftertrain;
 	using filter<T>::cutfromcenter;
+	using filter<T>::trainedflag;
 	using filter<T>::input_row;
 	using filter<T>::input_col;
 	using filter<T>::auth_count;
@@ -139,8 +139,6 @@ private:
 	using filter<T>::X_hat;
 	using filter<T>::H;
 	using filter<T>::U;
-
-	bool trainedflag;
 
 public:
 	// constructors
@@ -159,8 +157,6 @@ public:
 	double alpha, beta, gamma;						// training parameters
 
 	void trainfilter();								// train the filter, putting data into base class variable H
-
-	T applyfilter(T scene);							// apply the filter to a scene, returning the resulting similarity plane
 
 	EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
@@ -207,13 +203,12 @@ void OTSDF<T>::trainfilter() {
 		/* Compute T matrix, labeled as TT cause T is the template type */
 		typename filter<T>::MatCplx X_hat2; // only have to use this if whitenimgs && !cleanupaftertrain
 
-
 		// build filter
 		{
 			typename filter<T>::VecCplx TT(d);
 			typename filter<T>::VecCplx tmp(d);
 
-			TT.real().setZero(); TT.imag().setZero();
+			TT.imag().setZero();
 
 			if(alpha == 0.0 && beta == 0.0 && gamma == 0.0 && !whitenimgs) {
 				TT.real().setOnes(); // if no alpha, beta, or gamma, then filter = MVSDF under white noise = ECPSDF
@@ -226,6 +221,8 @@ void OTSDF<T>::trainfilter() {
 					TT.noalias() = (X_hat.colwise() - X_hat.rowwise().mean()).cwiseProduct((X_hat.colwise() - X_hat.rowwise().mean()).conjugate()).lazyProduct(vec_of_ones);
 					TT.real() = TT.real() * (typename filter<T>::TVar)(gamma/(N*d));
 					TT.imag() = TT.imag() * (typename filter<T>::TVar)(gamma/(N*d));
+				} else {
+					TT.real().setZero();
 				}
 				// ONV
 				if(alpha != 0.0) { // if only alpha, then filter = MVSDF
@@ -238,30 +235,30 @@ void OTSDF<T>::trainfilter() {
 				if(beta != 0.0 || whitenimgs) { // if only beta, then filter = MACE
 					// diagonal matrix Di = Xi * Conj(Xi) = power spectrum of xi, D = 1/(N*d) * SUM{ Di }
 					tmp.noalias() = X_hat.cwiseProduct(X_hat.conjugate()).lazyProduct(vec_of_ones);
+					tmp.real() = tmp.real() / (typename filter<T>::TVar)(N*d);
+					tmp.imag() = tmp.imag() / (typename filter<T>::TVar)(N*d);
 					if(whitenimgs) {
 						if(!cleanupaftertrain) {
 							X_hat2 = X_hat; // make copy to preserve for after training
 						}
 						for(int i=0; i<N; i++) {
-							X_hat.col(i) = X_hat.col(i).cwiseQuotient(tmp.cwiseInverse());
+							X_hat.col(i) = X_hat.col(i).cwiseQuotient(tmp);
 						}
 					}
 					if(beta != 0.0) {
-						tmp.real() = tmp.real() * (typename filter<T>::TVar)(beta/(N*d));
-						tmp.imag() = tmp.imag() * (typename filter<T>::TVar)(beta/(N*d));
+						tmp.real() = tmp.real() * (typename filter<T>::TVar)(beta);
+						tmp.imag() = tmp.imag() * (typename filter<T>::TVar)(beta);
 						TT = TT + tmp;
 					}
 				}
 			}
 
-
-
-			TT = TT.cwiseInverse(); //TT = TT.cwiseSqrt(); // T^(-1/2)
+			TT = TT.cwiseInverse(); // T^(-1)
 
 			/* Compute h as ECPSDF filter (X * (X^(+) *  X)^(-1) * U) but transform by T (saves some computation) */
 			tmp.real().setZero(); tmp.imag().setZero();
 
-			// if number of input data samples is less than 5, then inverting (X^(+) *  X) can be done very quickly
+			// if number of input data samples is less than 5, then inverting (X^(+) * T^(-1) * X) can be done very quickly
 			// note that (X^(+) * X) is positive semi-definite
 			switch(N) {
 			case 1:
@@ -311,17 +308,15 @@ void OTSDF<T>::trainfilter() {
 			filter<T>::zero_pad(H,input_row,input_col,cutfromcenter);
 		}
 
-		// rotate 90 degrees
-		if(input_row > 1 && input_col > 1) {
-			H.transposeInPlace();
-		}
-		if(input_row > 1 && input_col == 1) {
+		// rotate 180 degrees
+		if(input_row > 1) {
 			// swap row
 			int j = input_row-1;
 			for(int i=0; i<floor(input_row/2); i++) {
 				H.row(i).swap(H.row(j)); j--;
 			}
-		} else {
+		}
+		if(input_col > 1) {
 			// swap columns
 			int j = input_col-1;
 			for(int i=0; i<floor(input_col/2); i++) {
@@ -344,7 +339,7 @@ void OTSDF<T>::trainfilter() {
 
   Applys the trained filter to the scene
 
-  similarity plane = h^(+) * (T^(-1/2) * scene)
+  similarity plane = h .* scene
 
   @author   Jonathon M. Smereka
   @version  06-17-2013
@@ -353,7 +348,7 @@ void OTSDF<T>::trainfilter() {
 
  */
 template <class T>
-T OTSDF<T>::applyfilter(T scene) {
+T filter<T>::applyfilter(T scene) {
 	int N = scene.rows();
 	int M = scene.cols();
 	int fftszN = ((N + input_row-1) > 0) ? (N + input_row-1) : 1;
@@ -373,7 +368,7 @@ T OTSDF<T>::applyfilter(T scene) {
 		scene_freq = scene_freq.cwiseProduct(Filt_freq);
 
 		filter<T>::ifft_scalar(simplane, scene_freq);
-		filter<T>::zero_pad(simplane, N, M, cutfromcenter);
+		filter<T>::zero_pad(simplane, N, M, true);
 	}
 	return simplane;
 }
@@ -437,10 +432,6 @@ bool filter<T>::check_rank(T signal, bool auth) {
 	int N = signal.rows();
 	int M = signal.cols();
 	int sz = N*M;
-
-	if(normalizeimgs) {
-		signal = signal / (255);
-	}
 
 	if(auth_count == 0 && imp_count == 0) {
 		if((signal.cols() > 1 || signal.rows() > 1) && docomputerank) {
@@ -530,7 +521,7 @@ void filter<T>::addtoX(T &signal) {
 	}
 	// compute fft
 	MatCplx signal_hat;
-	fft_scalar(signal, signal_hat, N, M); // may need to add padding here eventually
+	fft_scalar(signal, signal_hat, N, M);
 
 	N = signal_hat.rows();
 	M = signal_hat.cols();
@@ -568,25 +559,25 @@ void filter<T>::addtoX(T &signal) {
 template <class T>
 void filter<T>::addtoU(bool auth) {
 	if(auth) {
-		auth_count++;
-		if(U.rows()*U.cols() == 0) {
+		if(auth_count+imp_count == 0) {
 			U.resize(1);
 			U(0).real() = 1; U(0).imag() = 0;
 		} else {
-			U.conservativeResize(auth_count+imp_count);
-			U(auth_count+imp_count-1).real() = 1;
-			U(auth_count+imp_count-1).imag() = 0;
+			U.conservativeResize(auth_count+imp_count+1);
+			U(auth_count+imp_count).real() = 1;
+			U(auth_count+imp_count).imag() = 0;
 		}
+		auth_count++;
 	} else {
-		imp_count++;
-		if(U.rows()*U.cols() == 0) {
+		if(auth_count+imp_count == 0) {
 			U.resize(1);
-			U(0).real() = -1; U(0).imag() = 0;
+			U(0).real() = 0; U(0).imag() = 0;
 		} else {
-			U.conservativeResize(auth_count+imp_count);
-			U(auth_count+imp_count-1).real() = -1;
-			U(auth_count+imp_count-1).imag() = 0;
+			U.conservativeResize(auth_count+imp_count+1);
+			U(auth_count+imp_count).real() = 0;
+			U(auth_count+imp_count).imag() = 0;
 		}
+		imp_count++;
 	}
 }
 
@@ -630,7 +621,7 @@ void filter<T>::fft_scalar(T const& sig, MatCplx &sig_freq, int siz1, int siz2) 
 	if(M == 1 || N == 1) {
 		plan = fftw_plan_dft_1d(siz1*siz2,mat1,mat2,FFTW_FORWARD,FFTW_ESTIMATE);
 	} else {
-		plan = fftw_plan_dft_2d(siz1,siz2,mat1,mat2,FFTW_FORWARD,FFTW_ESTIMATE);
+		plan = fftw_plan_dft_2d(siz2,siz1,mat1,mat2,FFTW_FORWARD,FFTW_ESTIMATE);
 	}
 
 	fftw_execute(plan);
@@ -691,7 +682,7 @@ void filter<T>::ifft_scalar(T &sig, MatCplx const& sig_freq) {
 	if(siz2 == 1 || siz1 == 1) {
 		plan = fftw_plan_dft_1d(sz,mat1,mat2,FFTW_BACKWARD,FFTW_ESTIMATE);
 	} else {
-		plan = fftw_plan_dft_2d(siz1,siz2,mat1,mat2,FFTW_BACKWARD,FFTW_ESTIMATE);
+		plan = fftw_plan_dft_2d(siz2,siz1,mat1,mat2,FFTW_BACKWARD,FFTW_ESTIMATE);
 	}
 
 	fftw_execute(plan);

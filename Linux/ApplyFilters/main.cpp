@@ -21,6 +21,7 @@ std::vector<int> impimg;
 
 // type conversion from darwin framework edited to work properly (opencv is row-major, while eigen is column-major)
 Eigen::MatrixXd cvMat2eigen(const CvMat *m) {
+	// TODO: make this work for any scalar type
 	Eigen::MatrixXd d;
 
 	if(m == NULL){ return d; }
@@ -69,8 +70,12 @@ Eigen::MatrixXd cvMat2eigen(const CvMat *m) {
 	break;
 
 	case CV_64FC1:
-		d = Eigen::Map<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> >((double *)m->data.ptr, m->rows, m->cols);
-		break;
+	{
+		Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> temp;
+		temp = Eigen::Map<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> >((double *)m->data.ptr, m->rows, m->cols);
+		d = temp.cast<double>();
+	}
+	break;
 
 	default:
 		std::cout << "unrecognized openCV matrix type: " << cvGetElemType(m) << "\n";
@@ -82,6 +87,7 @@ Eigen::MatrixXd cvMat2eigen(const CvMat *m) {
 
 // type conversion from darwin framework
 CvMat *eigen2cvMat(const Eigen::MatrixXd &m, int mType) {
+	// TODO: make this work for any scalar type
 	CvMat *d = cvCreateMat(m.rows(), m.cols(), mType);
 	if(d == NULL) return NULL;
 
@@ -106,8 +112,11 @@ CvMat *eigen2cvMat(const Eigen::MatrixXd &m, int mType) {
 	break;
 
 	case CV_64FC1:
-		Eigen::Map<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> >((double *)d->data.ptr, d->rows, d->cols) = m;
-		break;
+	{
+		Eigen::MatrixXd temp = m.cast<double>();
+		Eigen::Map<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> >((double *)d->data.ptr, d->rows, d->cols) = temp;
+	}
+	break;
 
 	default:
 		std::cout << "unrecognized openCV matrix type: " << mType << "\n";
@@ -120,6 +129,7 @@ CvMat *eigen2cvMat(const Eigen::MatrixXd &m, int mType) {
 
 
 void EigShowImg(const Eigen::MatrixXd &mat) {
+	// TODO: make this work for any scalar type
 	CvMat *convert = eigen2cvMat(mat, cvtype);
 	cv::Mat image = convert;
 	image.convertTo(image, CV_8U);
@@ -214,6 +224,7 @@ int main(int argc, char *argv[]) {
 	// get image from directory
 	if(argc > 1) {
 		loadimages(imgs, argv[1], 92, 112);
+		//loadimages(imgs, argv[1], 30, 40);
 	}
 
 
@@ -227,6 +238,7 @@ int main(int argc, char *argv[]) {
 
 		for(unsigned int j=0; j<authimg.size()-1; j++) { // use all but one to train
 			i = authimg[j];
+
 			if(imgs[i].SizeMinusOne != 0) {
 
 				if(nontested) {
@@ -281,6 +293,7 @@ int main(int argc, char *argv[]) {
 						} else {
 							std::cout << "Success\n";
 						}
+						thefilter.adjustfromcenter(false);
 					}
 					//EigShowImg(imgs[i]);
 					nontested = false; // only need to run test once
@@ -385,6 +398,7 @@ int main(int argc, char *argv[]) {
 		} else {
 			std::cout << "Success\n";
 		}
+		thefiltervec.adjustfromcenter(false);
 	}
 
 	truesig << 1, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0, 0, 1, 0, 1;
