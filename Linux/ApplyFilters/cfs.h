@@ -17,7 +17,7 @@
   @version  04-13-2013
 
   TODO: option to normalize spectrum + training adjustments if spectrum is normalized (ACE = Identity)
-  TODO: remove putting data in vector U when using an unconstrained filter...if using a lot of images then wasted space (maybe don't have it and just have X and Y for true and false class images)
+  TODO: add in PSR and PCE metrics
   TODO: fftw threading for large images (during scene comparison and training)
   TODO: include and support ASEF/E-ASEF, DCCF/PDCCF, MACH/E-MACH/EE-MACH/OTMACH/UMACE, MOSSE/E-MOSSE, MACE/MACE-MRH/MINACE/MICE/QMACE, MMCF/QMMCF, QCF, OTCHF
   TODO: adjust framework for ZACF (note: not programming ZACF, just adjusting the base abstract class to handle it accordingly)
@@ -44,13 +44,11 @@ public:
 private:
 	bool check_rank(T signal, bool auth);			// check the matrix rank against the authentic or imposter samples
 	int get_rank(TMat const& signal);				// get the matrix rank and return it as an int
-	void addtoX(T &signal);							// adds the data sample to X
-	void addtoU(bool auth);							// add a 1 or 0 to vector U based on authentic or impostor sample
+	void addtofourier(T &signal, bool auth);		// adds the data sample to X_hat/Y_hat
 
 protected:
-	TMat X;											// matrix of samples (authentic and impostor) in the spatial domain
-	MatCplx X_hat;									// matrix of samples (authentic and impostor) in the frequency domain
-	VecCplx U;										// vector of zeros and ones designating authentic and impostors in X
+	TMat XY;										// matrix of samples (authentic and impostor) in the spatial domain
+	MatCplx X_hat, Y_hat;							// matrix of samples (authentic and impostor) in the frequency domain
 
 	T H;											// the filter itself
 
@@ -61,7 +59,7 @@ protected:
 	bool cutfromcenter;								// zero-pad or crop from the center if true, otherwise top left corner
 	bool cleanupaftertrain;							// if the filter will not be retrained at any point, clean up X, X_hat, and U after training
 	bool zeropadtrnimgs;							// zero pad the training samples to prevent the effects of circular correlation during training (much more memory intensive)
-	bool whitenimgs;								// whiten the average spectrum of the data samples
+	int whitenimgs;									// whiten the average spectrum of the data samples, 0 = off (default), 1 = all samples, 2 = only authentic samples, 3 = only impostor samples
 	bool trainedflag;								// simple flag to see if there is a trained filter to be used
 
 	void zero_pad(T &signal, const int siz1, const int siz2, bool center);// resizes sample window (zero pad/crop) based on input size
@@ -79,12 +77,12 @@ public:
 		input_row = 0; input_col = 0;
 		docomputerank = true; cutfromcenter = false;
 		cleanupaftertrain = true; zeropadtrnimgs = false;
-		whitenimgs = false; trainedflag = false;
+		whitenimgs = 0; trainedflag = false;
 	}
 	virtual ~filter() {
 		// resize to zero to release memory
-		H.resize(0,0);
-		cleanupaftertrain = true; cleanclass();
+		H.resize(0,0); XY.resize(0,0);
+		X_hat.resize(0,0); Y_hat.resize(0,0);
 	}
 
 	bool add_auth(T const& newsig);						// add an authentic class sample for training
@@ -97,7 +95,7 @@ public:
 	inline void adjustfromcenter(bool tmp) { cutfromcenter = tmp; } // set whether to crop/pad from the center or top left corner of the sample
 	inline void noretraining(bool tmp) { cleanupaftertrain = tmp; } // no retraining is going to be used, clean up unnecessary memory
 	inline void zeropadtrndata(bool tmp) { zeropadtrnimgs = tmp; } // set whether to zeropad the training samples to prevent effects of circular correlation during training
-	inline void whitenspectrum(bool tmp) { whitenimgs = tmp; } // whiten the average spectrum of the training samples (results in sharper peaks)
+	inline void whitenspectrum(int tmp) { whitenimgs = tmp; } // whiten the average spectrum of the training samples (results in sharper peaks when compared against training images, though is less robust to distortion)
 
 	virtual void trainfilter() = 0;						// train the filter - this varies with each filter type
 
@@ -122,7 +120,7 @@ template <class T>
 void filter<T>::cleanclass(void) {
 	trainedflag = true;
 	if(zeropadtrnimgs) {
-		filter<T>::zero_pad(H,input_row,input_col,cutfromcenter);
+		filter<T>::zero_pad(H,input_row,input_col,false);
 	}
 
 	// rotate 180 degrees
@@ -140,8 +138,9 @@ void filter<T>::cleanclass(void) {
 			H.col(i).swap(H.col(j)); j--;
 		}
 	}
+	// clean up unnecessary storage
 	if(cleanupaftertrain) {
-		X.resize(0,0); X_hat.resize(0,0); U.resize(0);
+		XY.resize(0,0); X_hat.resize(0,0); Y_hat.resize(0,0);
 		auth_count = 0; imp_count = 0;
 	}
 }
@@ -203,7 +202,7 @@ T filter<T>::applyfilter(T scene) {
  */
 template <class T>
 bool filter<T>::add_auth(T const& newsig) {
-	return check_rank(newsig, 1);
+	return check_rank(newsig, true);
 }
 
 
@@ -222,7 +221,7 @@ bool filter<T>::add_auth(T const& newsig) {
  */
 template <class T>
 bool filter<T>::add_imp(T const& newsig) {
-	return check_rank(newsig, 0);
+	return check_rank(newsig, false);
 }
 
 
@@ -235,40 +234,40 @@ bool filter<T>::add_imp(T const& newsig) {
   @version  04-13-2013
 
   @param    signal		the 1-d/2-d sample that is to be added
-  @param	auth		1 = authentic, 0 = imposter
+  @param	auth		true = authentic, false = imposter
 
   @return   true or false if to be added to the vector
 
  */
 template <class T>
 bool filter<T>::check_rank(T signal, bool auth) {
-	int rank = auth_count+imp_count+1;
+	int Num = auth_count+imp_count;
+	int rank = Num+1;
 	int N = signal.rows();
 	int M = signal.cols();
 	int sz = N*M;
 
 	if(auth_count == 0 && imp_count == 0) {
-		if((signal.cols() > 1 || signal.rows() > 1) && docomputerank) {
+		if((M > 1 || N > 1) && docomputerank) {
 			rank = get_rank(signal);
 		}
 		if(rank > 0) {
 			input_row = N;
 			input_col = M;
 			if(docomputerank){
-				X.resize(sz,1);
+				XY.resize(sz,1);
 				// vectorize
 				TVar *arrayd = (signal.template data());
 				for(int j=0; j<sz; j++) {
-					X(j,0) = arrayd[j];
+					XY(j,0) = arrayd[j];
 				}
 			}
-			addtoX(signal);
-			addtoU(auth);
+			addtofourier(signal,auth);
 			return true;
 		}
 	} else {
 		// make sure it's the same size as the other samples
-		if(X.rows() != sz) {
+		if(input_row != sz) {
 			zero_pad(signal, input_row, input_col, cutfromcenter);
 			N = signal.rows();
 			M = signal.cols();
@@ -277,8 +276,8 @@ bool filter<T>::check_rank(T signal, bool auth) {
 
 		if(docomputerank) {
 			// put sample into matrix
-			TMat combsignal = X;
-			combsignal.conservativeResize(sz,X.cols()+1);
+			TMat combsignal = XY;
+			combsignal.conservativeResize(sz,Num+1);
 
 			// vectorize
 			TVar *arrayd = (signal.template data());
@@ -286,19 +285,18 @@ bool filter<T>::check_rank(T signal, bool auth) {
 			//Eigen::Map<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> >(arrayd,N,M) = signal.template cast<double>();
 
 			for(int j=0; j<sz; j++) {
-				combsignal(j,X.cols()) = arrayd[j];
+				combsignal(j,Num) = arrayd[j];
 			}
 
 			// find rank
 			rank = get_rank(combsignal);
-			if(rank > (auth_count+imp_count)) {
-				X.resize(sz,X.cols()+1);
-				X = combsignal;
+			if(rank > Num) {
+				XY.resize(sz,Num+1);
+				XY = combsignal;
 			}
 		}
-		if(rank > (auth_count+imp_count)) {
-			addtoX(signal);
-			addtoU(auth);
+		if(rank > Num) {
+			addtofourier(signal,auth);
 			return true;
 		}
 	}
@@ -309,29 +307,31 @@ bool filter<T>::check_rank(T signal, bool auth) {
 
 /**
 
-  Add vectorized sample in fourier domain to X_hat matrix
+  Add vectorized sample in fourier domain to X_hat/Y_hat matrix
 
   @author   Jonathon M. Smereka
   @version  04-10-2013
 
   @param    signal		the 1-d/2-d sample that is to be added
+  @param	auth		true = authentic, false = imposter
 
   @return   nothing
 
  */
 template <class T>
-void filter<T>::addtoX(T &signal) {
+void filter<T>::addtofourier(T &signal, bool auth) {
 	int N = signal.rows();
 	int M = signal.cols();
 	int sz;
 	if(zeropadtrnimgs) {
+		// TODO: X_hat has to have the same number of rows as Y_hat, if user changes zeropadtrnimgs after samples added -> need to adjust accordingly for both
 		if(N > 1) {
 			N = N * 2;
 		}
 		if(M > 1) {
 			M = M * 2;
 		}
-		zero_pad(signal, N, M, cutfromcenter);
+		zero_pad(signal, N, M, false);
 	}
 	// compute fft
 	MatCplx signal_hat;
@@ -341,59 +341,37 @@ void filter<T>::addtoX(T &signal) {
 	M = signal_hat.cols();
 	sz = N*M;
 
-	// put into matrix
-	if(X_hat.cols() == 0) {
-		X_hat.resize(sz,1);
-	} else {
-		X_hat.conservativeResize(X_hat.rows(),X_hat.cols()+1);
-	}
-
-	TCplx *arrayd = (signal_hat.template data());
-
-	for(int i=0; i<sz; i++) {
-		//X_hat(i,X_hat.cols()-1) = std::complex<double>(arrayd1[i],arrayd2[i]);
-		X_hat(i,X_hat.cols()-1) = arrayd[i];
-	}
-}
-
-
-
-/**
-
-  Add a 1 or 0 to vector U based on authentic or impostor sample
-
-  @author   Jonathon M. Smereka
-  @version  04-10-2013
-
-  @param    auth		whether to add a 1 or 0
-
-  @return   nothing
-
- */
-template <class T>
-void filter<T>::addtoU(bool auth) {
 	if(auth) {
-		if(auth_count+imp_count == 0) {
-			U.resize(1);
-			U(0).real() = 1; U(0).imag() = 0;
+		// put into matrix
+		if(auth_count == 0) {
+			X_hat.resize(sz,1);
 		} else {
-			U.conservativeResize(auth_count+imp_count+1);
-			U(auth_count+imp_count).real() = 1;
-			U(auth_count+imp_count).imag() = 0;
+			X_hat.conservativeResize(X_hat.rows(),auth_count+1);
+		}
+
+		TCplx *arrayd = (signal_hat.template data());
+
+		for(int i=0; i<sz; i++) {
+			X_hat(i,auth_count) = arrayd[i];
 		}
 		auth_count++;
 	} else {
-		if(auth_count+imp_count == 0) {
-			U.resize(1);
-			U(0).real() = 0; U(0).imag() = 0;
+		// put into matrix
+		if(imp_count == 0) {
+			Y_hat.resize(sz,1);
 		} else {
-			U.conservativeResize(auth_count+imp_count+1);
-			U(auth_count+imp_count).real() = 0;
-			U(auth_count+imp_count).imag() = 0;
+			Y_hat.conservativeResize(Y_hat.rows(),imp_count+1);
+		}
+
+		TCplx *arrayd = (signal_hat.template data());
+
+		for(int i=0; i<sz; i++) {
+			Y_hat(i,imp_count) = arrayd[i];
 		}
 		imp_count++;
 	}
 }
+
 
 
 
