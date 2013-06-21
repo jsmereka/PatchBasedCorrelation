@@ -236,7 +236,7 @@ int main(int argc, char *argv[]) {
 		UOTSDF<Eigen::MatrixXd> thefilter(pow(10,-5), 1-pow(10,-5), 0.0); // matrix of doubles
 		thefilter.computerank(true); // is defaulted as true, but we can set it anyway
 		thefilter.whitenspectrum(0); // use all samples to whiten spectrum, 0 = off (default), 1 = all samples, 2 = only authentic samples, 3 = only impostor samples
-		thefilter.zeropadtrndata(true); // default = false (to save some memory)
+		thefilter.zeropadtrndata(false); // default = false (to save some memory)
 		thefilter.adjustfromcenter(false); // default = false, but will work either way as long as it's consistent for each sample
 
 		// save one auth img and one imp image for comparison
