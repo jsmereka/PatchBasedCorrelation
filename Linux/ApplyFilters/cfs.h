@@ -9,6 +9,26 @@
 #include <math.h>
 #include <fftw3.h>
 
+
+// Define data structure for images in the correlation filter library.
+struct CDataStruct{
+	float *data;
+	std::complex<float> *data_freq;
+	int num_data;
+	int num_channels;
+	std::vector<float*> ptr_data;
+	std::vector<std::complex <float> *> ptr_data_freq;
+	Eigen::VectorXi siz_data;
+	Eigen::VectorXi siz_data_freq;
+	float *label;
+	int num_elements_freq;
+
+	~CDataStruct(){
+		delete[] data;
+		delete[] data_freq;
+	}
+};
+
 /**
 
   Base filter class for 1-d and 2-d data samples

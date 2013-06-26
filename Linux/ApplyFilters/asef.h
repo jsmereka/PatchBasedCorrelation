@@ -24,9 +24,9 @@ class ASEF : public filter<T> {
 private:
 	using filter<T>::zeropadtrnimgs;
 	using filter<T>::whitenimgs;
-	using filter<T>::cleanupaftertrain;
 	using filter<T>::input_row;
 	using filter<T>::input_col;
+	using filter<T>::Y_hat;
 	using filter<T>::X_hat;
 	using filter<T>::H;
 
@@ -74,8 +74,49 @@ public:
  */
 template <class T>
 void ASEF<T>::trainfilter() {
-	//
-}
+	int acount = X_hat.cols(), icount = Y_hat.cols();
+		int N = acount + icount;
+		if(N > 0) {
+			int d = input_row * input_col;
+			int rowmult = 1, colmult = 1;
+			if(zeropadtrnimgs) {
+				if(input_row > 1) {
+					rowmult = 2;
+				}
+				if(input_col > 1) {
+					colmult = 2;
+				}
+				d = d * rowmult * colmult;
+			}
+
+			/* Compute T matrix, labeled as TT cause T is the template type */
+			// build filter
+			{
+				typename filter<T>::VecCplx TT = filter<T>::tradeoff_scalar(alpha, beta, gamma);
+
+				typename filter<T>::VecCplx tmp(d);
+				typename filter<T>::MatCplx AllSamples(d,N);
+
+				AllSamples << X_hat, Y_hat; // [X Y]
+
+				if(whitenimgs > 0) { // whiten
+					for(int i=0; i<acount; i++) {
+						AllSamples.col(i) = AllSamples.col(i).cwiseQuotient(TT);
+					}
+				}
+
+				// compute filter in tmp
+
+
+				TT.resize(0);
+				typename filter<T>::MatCplx H_hat;
+				H_hat = Eigen::Map<typename filter<T>::MatCplx>(tmp.data(), input_row*rowmult, input_col*colmult);
+				tmp.resize(0); H.resize(input_row*rowmult,input_col*colmult);
+				filter<T>::ifft_scalar(H, H_hat);
+			}
+
+			filter<T>::cleanclass();
+		}
 }
 
 
