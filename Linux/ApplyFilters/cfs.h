@@ -59,15 +59,16 @@ protected:
 	bool cutfromcenter;								// zero-pad or crop from the center if true, otherwise top left corner
 	bool cleanupaftertrain;							// if the filter will not be retrained at any point, clean up X, X_hat, and U after training
 	bool zeropadtrnimgs;							// zero pad the training samples to prevent the effects of circular correlation during training (much more memory intensive)
+	bool asm_onlytrueclass;							// when calculating ASM, only use the true class images, otherwise use all images
 	int whitenimgs;									// whiten the average spectrum of the data samples, 0 = off (default), 1 = all samples, 2 = only authentic samples, 3 = only impostor samples
 	bool trainedflag;								// simple flag to see if there is a trained filter to be used
 
 	void zero_pad(T &signal, const int siz1, const int siz2, bool center);// resizes sample window (zero pad/crop) based on input size
-	void zero_pad_cplx(MatCplx &signal, const int siz1, const int siz2, bool center);// resizes sample window (zero pad/crop) based on input size (complex matrices)
 
 	void fft_scalar(T const& sig, MatCplx &sig_freq, int siz1, int siz2); // put sample into frequency domain
 	void ifft_scalar(T &sig, MatCplx const& sig_freq);					  // get sample from frequency domain
 
+	VecCplx tradeoff_scalar(double alpha, double beta, double gamma);	  // builds diagonal trade off matrix between ASM, ONV, and ACE
 	void cleanclass(void);							// call after training to rotate the filter and dump unnecessary memory
 
 public:
@@ -77,7 +78,7 @@ public:
 		input_row = 0; input_col = 0;
 		docomputerank = true; cutfromcenter = false;
 		cleanupaftertrain = true; zeropadtrnimgs = false;
-		whitenimgs = 0; trainedflag = false;
+		whitenimgs = 0; trainedflag = false; asm_onlytrueclass = true;
 	}
 	virtual ~filter() {
 		// resize to zero to release memory
@@ -96,6 +97,7 @@ public:
 	inline void noretraining(bool tmp) { cleanupaftertrain = tmp; } // no retraining is going to be used, clean up unnecessary memory
 	inline void zeropadtrndata(bool tmp) { zeropadtrnimgs = tmp; } // set whether to zeropad the training samples to prevent effects of circular correlation during training
 	inline void whitenspectrum(int tmp) { whitenimgs = tmp; } // whiten the average spectrum of the training samples (results in sharper peaks when compared against training images, though is less robust to distortion)
+	inline void setASM_trueclass(bool tmp) { asm_onlytrueclass = tmp; } // compute the ASM criterion with only the true class images
 
 	virtual void trainfilter() = 0;						// train the filter - this varies with each filter type
 
@@ -601,81 +603,125 @@ void filter<T>::zero_pad(T &signal, const int siz1, const int siz2, bool center)
 
 /**
 
-  Zero pad or crop the sample (complex matrix) based on the input size parameters, simply using conserative resize won't work (uninitialized matrix elements)
+  Build the diagonal trade off matrix T (between ACE, ONV, and ASM)
 
   @author   Jonathon M. Smereka
-  @version  04-13-2013
+  @version  06-25-2013
 
-  @param    signal		the 1-d/2-d sample to be checked (complex matrix)
-  @param	siz1		final number of rows for the output
-  @param	siz2		final number of columns for the output
-  @param	center		pad/cut so the sample is centered
+  @param    alpha		weight of ONV criterion
+  @param	beta		weight of ACE criterion
+  @param	gamma		weight of ASM criterion
 
-  @return   passed by ref to return sample in selected size window
+  @return   complex vector T containing trade off between ACE, ONV, and ASM
 
  */
 template <class T>
-void filter<T>::zero_pad_cplx(MatCplx &signal, const int siz1, const int siz2, bool center) {
-	int M = signal.rows();
-	int N = signal.cols();
+typename filter<T>::VecCplx filter<T>::tradeoff_scalar(double alpha, double beta, double gamma) {
+	int N = auth_count + imp_count;
+	VecCplx TT;
+	if(N > 0) {
+		int d = input_row * input_col;
+		if(zeropadtrnimgs) {
+			if(input_row > 1) {
+				d *= 2;
+			}
+			if(input_col > 1) {
+				d *= 2;
+			}
+		}
 
-	if(M != siz1 || N != siz2) {
-		// copy data into manipulative matrix
-		MatCplx temp(siz1,siz2); // temporary variable
+		/* Compute T matrix, labeled as TT cause T is the template type */
+		VecCplx tmp(d);
+		VecCplx vec_of_ones(N);
+		vec_of_ones.real().setOnes(); vec_of_ones.imag().setZero();
 
-		bool nocut = false;
-		int str = 0, stc = 0; // starting row and column (center or top corner)
+		TT.resize(d);
+		TT.imag().setZero();
 
-		// Perform any cropping operations
-		if(siz1 < M || siz2 < N) {
-			if(siz1 < M && siz2 < N) { // crop both rows and columns
-				if(center) { // cut from the center
-					str = floor(abs(siz1 - M)/2);
-					stc = floor(abs(siz2 - N)/2);
-				}
-				temp = signal.block(str,stc,siz1,siz2);
-				M = siz1; N = siz2;
-			} else if(siz1 < M) {
-				if(center) { // cut from the center
-					str = floor(abs(siz1 - M)/2);
-				}
-				temp.setZero(siz1,std::max(N,siz2));
-				M = siz1;
-				temp.block(0,0,siz1,N) = signal.block(str,stc,siz1,N);
-			} else if(siz2 < N) {
-				if(center) { // cut from the center
-					stc = floor(abs(siz2 - N)/2);
-				}
-				temp.setZero(std::max(M,siz1),siz2);
-				N = siz2;
-				temp.block(0,0,M,siz2) = signal.block(str,stc,M,siz2);
+		if(alpha == 0.0 && beta == 0.0 && gamma == 0.0) {
+			TT.real().setOnes(); // if no alpha, beta, or gamma, then filter = MVSDF under white noise = ECPSDF
+		}
+
+		// ASM
+		if(gamma != 0.0 && auth_count > 0) { // if only gamma, then filter = MSESDF (constrained MACH)
+			if(asm_onlytrueclass) {
+				// diagonal matrix S = 1/(Nx*d) * SUM{ (Xi - mean(Xi)) * Conj(Xi - mean(Xi)) }
+				TT.noalias() = (X_hat.colwise() - X_hat.rowwise().mean()).cwiseProduct((X_hat.colwise() - X_hat.rowwise().mean()).conjugate()).lazyProduct(vec_of_ones);
+				TT.real() = TT.real() * (TVar)(gamma/(N*d));
+				TT.imag() = TT.imag() * (TVar)(gamma/(N*d));
+			} else {
+				// diagonal matrix S = 1/(N*d) * SUM{ (Zi - mean(Zi)) * Conj(Zi - mean(Zi)) }
+				TT.noalias() = (X_hat.colwise() - X_hat.rowwise().mean()).cwiseProduct((X_hat.colwise() - X_hat.rowwise().mean()).conjugate()).lazyProduct(vec_of_ones);
+				TT.real() = TT.real() * (TVar)(gamma/(N*d));
+				TT.imag() = TT.imag() * (TVar)(gamma/(N*d));
 			}
 		} else {
-			temp.setZero(siz1,siz2);
-			nocut = true;
+			TT.real().setZero();
 		}
-		// Perform any padding operations
-		if(siz1 > M || siz2 > N) {
-			if(center) { // pad from the center
-				str = floor((siz1 - M)/2);
-				stc = floor((siz2 - N)/2);
+
+		// ONV
+		if(alpha != 0.0) { // if only alpha, then filter = MVSDF
+			// diagonal matrix P = constant * identity for additive white noise
+			tmp.real().setOnes(); tmp.imag().setZero();
+			tmp.real() = tmp.real() * (TVar)(alpha);
+			TT = TT + tmp;
+		}
+
+		// ACE
+		if(beta != 0.0 || whitenimgs > 0) { // if only beta, then filter = MACE
+			// diagonal matrix Di = Zi * Conj(Zi) = power spectrum of zi (where zi is an authentic or impostor data sample), D = 1/(N*d) * SUM{ Di }
+			int resetwhiten = whitenimgs;
+			if(resetwhiten == 1 || resetwhiten > 3) {
+				if(auth_count == 0) {
+					resetwhiten = 3;
+				} else if(imp_count == 0) {
+					resetwhiten = 2;
+				}
 			}
-			if(siz1 > M && siz2 > N) { // pad both rows and columns
-				temp.conservativeResize(siz1,siz2);
-			} else if(siz1 > M) {
-				temp.conservativeResize(siz1,N);
-			} else if(siz2 > N) {
-				temp.conservativeResize(M,siz2);
+			switch(resetwhiten) {
+			case 2: // use authentic
+			{
+				if(auth_count > 0) {
+					tmp.noalias() = X_hat.cwiseProduct(X_hat.conjugate()).lazyProduct(vec_of_ones.block(0,0,auth_count,1));
+					tmp.real() = tmp.real() * (TVar)(beta/N*d);
+					tmp.imag() = tmp.imag() * (TVar)(beta/N*d);
+					TT = TT + tmp;
+				}
 			}
-			if(nocut) {
-				temp.block(str,stc,M,N) = signal;
+			break;
+			case 3: // use impostor
+			{
+				if(imp_count > 0) {
+					tmp.noalias() = Y_hat.cwiseProduct(Y_hat.conjugate()).lazyProduct(vec_of_ones.block(0,0,imp_count,1));
+					tmp.real() = tmp.real() * (TVar)(beta/N*d);
+					tmp.imag() = tmp.imag() * (TVar)(beta/N*d);
+					TT = TT + tmp;
+				}
+			}
+			break;
+			default: // use all
+			{
+				MatCplx AllSamples;
+				if(auth_count > 0 && imp_count > 0) {
+					AllSamples.resize(d,N); AllSamples << X_hat, Y_hat;
+				} else if(auth_count > 0) {
+					AllSamples = X_hat;
+				} else if(imp_count > 0) {
+					AllSamples = Y_hat;
+				}
+				tmp.noalias() = AllSamples.cwiseProduct(AllSamples.conjugate()).lazyProduct(vec_of_ones);
+				tmp.real() = tmp.real() * (TVar)(beta/N*d);
+				tmp.imag() = tmp.imag() * (TVar)(beta/N*d);
+				TT = TT + tmp;
+			}
+			break;
 			}
 		}
-		// resize signal
-		signal.resize(siz1,siz2);
-		signal.setZero(siz1,siz2);
-		signal = temp;
+
+		TT = TT.cwiseInverse(); // T^(-1)
 	}
+	return TT;
 }
+
 
 #endif

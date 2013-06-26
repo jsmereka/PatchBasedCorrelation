@@ -28,12 +28,11 @@ template <class T>
 class UOTSDF : public filter<T> {
 private:
 	using filter<T>::zeropadtrnimgs;
+	using filter<T>::asm_onlytrueclass;
 	using filter<T>::whitenimgs;
-	using filter<T>::cleanupaftertrain;
 	using filter<T>::input_row;
 	using filter<T>::input_col;
 	using filter<T>::X_hat;
-	using filter<T>::Y_hat;
 	using filter<T>::H;
 
 public:
@@ -83,9 +82,8 @@ public:
  */
 template <class T>
 void UOTSDF<T>::trainfilter() {
-	int acount = X_hat.cols(), icount = Y_hat.cols();
-	int N = acount + icount;
-	if(N > 0) {
+	int acount = X_hat.cols();
+	if(acount > 0) {
 		int d = input_row * input_col;
 		int rowmult = 1, colmult = 1;
 		if(zeropadtrnimgs) {
@@ -101,120 +99,26 @@ void UOTSDF<T>::trainfilter() {
 		/* Compute T matrix, labeled as TT cause T is the template type */
 		// build filter
 		{
-			typename filter<T>::VecCplx TT(d);
+			int tmpwhiten = whitenimgs;
+			if(beta != 0.0) {
+				whitenimgs = 3; // use Dy instead of Dxy
+			}
+
+			bool tmpasm = asm_onlytrueclass; // use Sx instead of Sxy
+			typename filter<T>::VecCplx TT = filter<T>::tradeoff_scalar(alpha, beta, gamma);
+			whitenimgs = tmpwhiten;
+			asm_onlytrueclass = tmpasm;
+
 			typename filter<T>::VecCplx tmp(d);
-			typename filter<T>::MatCplx AllSamples;
-			typename filter<T>::VecCplx U(N);
-			U.real().setOnes(); U.imag().setZero();
+			typename filter<T>::MatCplx AllSamples(d,acount);
 
-			TT.imag().setZero();
+			AllSamples << X_hat;
 
-			if(alpha == 0.0 && beta == 0.0 && gamma == 0.0) {
-				TT.real().setOnes(); // if no alpha, beta, or gamma, then filter =
-			}
-
-			// ASM
-			if(gamma != 0.0 && acount > 0) { // if only gamma, then filter = MACH
-				// diagonal matrix Sx = 1/(N*d) * SUM{ (Xi - mean(Xi)) * Conj(Xi - mean(Xi)) }
-				TT.noalias() = (X_hat.colwise() - X_hat.rowwise().mean()).cwiseProduct((X_hat.colwise() - X_hat.rowwise().mean()).conjugate()).lazyProduct(U);
-				TT.real() = TT.real() * (typename filter<T>::TVar)(gamma/(N*d));
-				TT.imag() = TT.imag() * (typename filter<T>::TVar)(gamma/(N*d));
-			} else {
-				TT.real().setZero();
-			}
-
-			// ONV
-			if(alpha != 0.0) { // if only alpha, then filter =
-				// diagonal matrix P = constant * identity for additive white noise
-				tmp.real().setOnes(); tmp.imag().setZero();
-				tmp.real() = tmp.real() * (typename filter<T>::TVar)(alpha);
-				TT = TT + tmp;
-			}
-
-			// ACE
-			if(beta != 0.0 || whitenimgs > 0) { // if only beta, then filter =
-				// diagonal matrix Dyi = Yi * Conj(Yi) = power spectrum of yi, Dy = 1/(N*d) * SUM{ Dyi }
-				bool recalc = true; // recalculate tmp if not already containing Dy
-				int resetwhiten = whitenimgs;
-				if(resetwhiten == 1 || resetwhiten > 3) {
-					if(acount == 0) {
-						resetwhiten = 0;
-					} else if(icount == 0) {
-						resetwhiten = 2;
-					}
-				}
-				switch(resetwhiten) {
-				case 2: // use authentic
-				{
-					if(acount > 0) {
-						tmp.noalias() = X_hat.cwiseProduct(X_hat.conjugate()).lazyProduct(U.block(0,0,acount,1));
-						tmp.real() = tmp.real() / (typename filter<T>::TVar)(N*d);
-						tmp.imag() = tmp.imag() / (typename filter<T>::TVar)(N*d);
-					} else {
-						resetwhiten = 0;
-					}
-				}
-				break;
-				case 3: // use impostor
-				{
-					if(icount > 0) {
-						tmp.noalias() = Y_hat.cwiseProduct(Y_hat.conjugate()).lazyProduct(U.block(0,0,icount,1));
-						tmp.real() = tmp.real() / (typename filter<T>::TVar)(N*d);
-						tmp.imag() = tmp.imag() / (typename filter<T>::TVar)(N*d); recalc = false;
-					} else {
-						tmp.real().setOnes(); tmp.imag().setZero();
-					}
-				}
-				break;
-				default: // use all
-				{
-					if(acount > 0 && icount > 0) {
-						AllSamples.resize(d,N); AllSamples << X_hat, Y_hat;
-					} else if(acount > 0) {
-						AllSamples = X_hat;
-					} else if(icount > 0) {
-						AllSamples = Y_hat; recalc = false;
-					}
-					tmp.noalias() = AllSamples.cwiseProduct(AllSamples.conjugate()).lazyProduct(U);
-					tmp.real() = tmp.real() / (typename filter<T>::TVar)(N*d);
-					tmp.imag() = tmp.imag() / (typename filter<T>::TVar)(N*d);
-				}
-				break;
-				}
-				if(acount > 0) {
-					AllSamples = X_hat;
-				} else if(icount > 0) {
-					AllSamples.resize(d,1); AllSamples.real().setOnes(); AllSamples.imag().setZero(); resetwhiten = 0;
-				}
-				if(resetwhiten > 0) {
-					for(int i=0; i<acount; i++) {
-						AllSamples.col(i) = AllSamples.col(i).cwiseQuotient(tmp);
-					}
-				}
-				if(beta != 0.0) {
-					if(recalc) {
-						if(icount > 0) {
-							tmp.noalias() = Y_hat.cwiseProduct(Y_hat.conjugate()).lazyProduct(U.block(0,0,icount,1));
-							tmp.real() = tmp.real() * (typename filter<T>::TVar)(beta/N*d);
-							tmp.imag() = tmp.imag() * (typename filter<T>::TVar)(beta/N*d);
-						} else {
-							tmp.real().setZero(); tmp.imag().setZero();
-						}
-					} else {
-						tmp.real() = tmp.real() * (typename filter<T>::TVar)(beta);
-						tmp.imag() = tmp.imag() * (typename filter<T>::TVar)(beta);
-					}
-					TT = TT + tmp;
-				}
-			} else {
-				if(acount > 0) {
-					AllSamples = X_hat;
-				} else if(icount > 0) {
-					AllSamples.resize(d,1); AllSamples.real().setOnes(); AllSamples.imag().setZero();
+			if(whitenimgs > 0) { // whiten
+				for(int i=0; i<acount; i++) {
+					AllSamples.col(i) = AllSamples.col(i).cwiseQuotient(TT);
 				}
 			}
-
-			TT = TT.cwiseInverse(); // T^(-1)
 
 			tmp.real().setZero(); tmp.imag().setZero();
 

@@ -10,7 +10,7 @@
 #include <Eigen/Core>
 #include <Eigen/Dense>
 
-#include <cv.h>
+#include "cv.h"
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
 
