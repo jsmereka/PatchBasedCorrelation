@@ -11,7 +11,8 @@
 
 
 // Define data structure for images in the correlation filter library.
-struct CDataStruct{
+class CDataStruct{
+public:
 	float *data;
 	std::complex<float> *data_freq;
 	int num_data;
@@ -22,6 +23,8 @@ struct CDataStruct{
 	Eigen::VectorXi siz_data_freq;
 	float *label;
 	int num_elements_freq;
+
+	CDataStruct() { }
 
 	~CDataStruct(){
 		delete[] data;
@@ -62,9 +65,9 @@ public:
 	typedef Eigen::Matrix<TVar, Eigen::Dynamic, 1> TVec;
 
 private:
-	bool check_rank(T signal, bool auth);			// check the matrix rank against the authentic or imposter samples
-	int get_rank(TMat const& signal);				// get the matrix rank and return it as an int
-	void addtofourier(T &signal, bool auth);		// adds the data sample to X_hat/Y_hat
+	bool check_rank_scalar(T signal, bool auth);	// check the matrix rank against the authentic or imposter samples
+	int get_rank_scalar(TMat const& signal);		// get the matrix rank and return it as an int
+	void addtofourier_scalar(T &signal, bool auth);	// adds the data sample to X_hat/Y_hat
 
 protected:
 	TMat XY;										// matrix of samples (authentic and impostor) in the spatial domain
@@ -83,7 +86,9 @@ protected:
 	int whitenimgs;									// whiten the average spectrum of the data samples, 0 = off (default), 1 = all samples, 2 = only authentic samples, 3 = only impostor samples
 	bool trainedflag;								// simple flag to see if there is a trained filter to be used
 
-	void zero_pad(T &signal, const int siz1, const int siz2, bool center);// resizes sample window (zero pad/crop) based on input size
+	void zero_pad_scalar(T &signal, const int siz1, const int siz2, bool center); // resizes sample window (zero pad/crop) based on input size
+	void zero_pad_cplx_scalar(MatCplx &signal, const int siz1, const int siz2, bool center); // resizes sample window (zero pad/crop) based on input size
+	void rebuild_cplxmat_scalar(MatCplx &signal, const int siz, bool center); // resize complex matrix by pulling each column out of fourier domain and putting back into fourier domain at new size
 
 	void fft_scalar(T const& sig, MatCplx &sig_freq, int siz1, int siz2); // put sample into frequency domain
 	void ifft_scalar(T &sig, MatCplx const& sig_freq);					  // get sample from frequency domain
@@ -142,7 +147,7 @@ template <class T>
 void filter<T>::cleanclass(void) {
 	trainedflag = true;
 	if(zeropadtrnimgs) {
-		filter<T>::zero_pad(H,input_row,input_col,false);
+		filter<T>::zero_pad_scalar(H,input_row,input_col,false);
 	}
 
 	// rotate 180 degrees
@@ -195,15 +200,15 @@ T filter<T>::applyfilter(T scene) {
 		typename filter<T>::MatCplx scene_freq(fftszN, fftszM), Filt_freq(fftszN, fftszM);
 		T Filt = H;
 
-		filter<T>::zero_pad(scene, fftszN, fftszM, cutfromcenter);
+		filter<T>::zero_pad_scalar(scene, fftszN, fftszM, cutfromcenter);
 		filter<T>::fft_scalar(scene, scene_freq, fftszN, fftszM);
-		filter<T>::zero_pad(Filt, fftszN, fftszM, cutfromcenter);
+		filter<T>::zero_pad_scalar(Filt, fftszN, fftszM, cutfromcenter);
 		filter<T>::fft_scalar(Filt, Filt_freq, fftszN, fftszM);
 
 		scene_freq = scene_freq.cwiseProduct(Filt_freq);
 
 		filter<T>::ifft_scalar(simplane, scene_freq);
-		filter<T>::zero_pad(simplane, N, M, true);
+		filter<T>::zero_pad_scalar(simplane, N, M, true);
 	}
 	return simplane;
 }
@@ -224,7 +229,7 @@ T filter<T>::applyfilter(T scene) {
  */
 template <class T>
 bool filter<T>::add_auth(T const& newsig) {
-	return check_rank(newsig, true);
+	return check_rank_scalar(newsig, true);
 }
 
 
@@ -243,7 +248,7 @@ bool filter<T>::add_auth(T const& newsig) {
  */
 template <class T>
 bool filter<T>::add_imp(T const& newsig) {
-	return check_rank(newsig, false);
+	return check_rank_scalar(newsig, false);
 }
 
 
@@ -262,7 +267,7 @@ bool filter<T>::add_imp(T const& newsig) {
 
  */
 template <class T>
-bool filter<T>::check_rank(T signal, bool auth) {
+bool filter<T>::check_rank_scalar(T signal, bool auth) {
 	int Num = auth_count+imp_count;
 	int rank = Num+1;
 	int N = signal.rows();
@@ -271,7 +276,7 @@ bool filter<T>::check_rank(T signal, bool auth) {
 
 	if(auth_count == 0 && imp_count == 0) {
 		if((M > 1 || N > 1) && docomputerank) {
-			rank = get_rank(signal);
+			rank = get_rank_scalar(signal);
 		}
 		if(rank > 0) {
 			input_row = N;
@@ -284,13 +289,13 @@ bool filter<T>::check_rank(T signal, bool auth) {
 					XY(j,0) = arrayd[j];
 				}
 			}
-			addtofourier(signal,auth);
+			addtofourier_scalar(signal,auth);
 			return true;
 		}
 	} else {
 		// make sure it's the same size as the other samples
 		if(input_row != sz) {
-			zero_pad(signal, input_row, input_col, cutfromcenter);
+			zero_pad_scalar(signal, input_row, input_col, cutfromcenter);
 			N = signal.rows();
 			M = signal.cols();
 			sz = N*M;
@@ -311,14 +316,14 @@ bool filter<T>::check_rank(T signal, bool auth) {
 			}
 
 			// find rank
-			rank = get_rank(combsignal);
+			rank = get_rank_scalar(combsignal);
 			if(rank > Num) {
 				XY.resize(sz,Num+1);
 				XY = combsignal;
 			}
 		}
 		if(rank > Num) {
-			addtofourier(signal,auth);
+			addtofourier_scalar(signal,auth);
 			return true;
 		}
 	}
@@ -341,19 +346,18 @@ bool filter<T>::check_rank(T signal, bool auth) {
 
  */
 template <class T>
-void filter<T>::addtofourier(T &signal, bool auth) {
+void filter<T>::addtofourier_scalar(T &signal, bool auth) {
 	int N = signal.rows();
 	int M = signal.cols();
 	int sz;
 	if(zeropadtrnimgs) {
-		// TODO: X_hat has to have the same number of rows as Y_hat, if user changes zeropadtrnimgs after samples added -> need to adjust accordingly for both
 		if(N > 1) {
 			N = N * 2;
 		}
 		if(M > 1) {
 			M = M * 2;
 		}
-		zero_pad(signal, N, M, false);
+		zero_pad_scalar(signal, N, M, false);
 	}
 	// compute fft
 	MatCplx signal_hat;
@@ -368,7 +372,23 @@ void filter<T>::addtofourier(T &signal, bool auth) {
 		if(auth_count == 0) {
 			X_hat.resize(sz,1);
 		} else {
-			X_hat.conservativeResize(X_hat.rows(),auth_count+1);
+			// TODO: might replace zero_pad with rebuild_cplxmat...need to see if needed or not
+			if(X_hat.rows() < sz) {
+				// need to zero-pad X_hat
+				zero_pad_cplx_scalar(X_hat, sz, X_hat.cols()+1, false);
+				if(Y_hat.rows() < sz && imp_count > 0) {
+					zero_pad_cplx_scalar(Y_hat, sz, Y_hat.cols(), false);
+				}
+			} else if(X_hat.rows() > sz) {
+				// need to cut down X_hat
+				rebuild_cplxmat_scalar(X_hat, sz, false);
+				X_hat.conservativeResize(X_hat.rows(),auth_count+1);
+				if(Y_hat.rows() < sz && imp_count > 0) {
+					rebuild_cplxmat_scalar(Y_hat, sz, false);
+				}
+			} else {
+				X_hat.conservativeResize(X_hat.rows(),auth_count+1);
+			}
 		}
 
 		TCplx *arrayd = (signal_hat.template data());
@@ -382,7 +402,22 @@ void filter<T>::addtofourier(T &signal, bool auth) {
 		if(imp_count == 0) {
 			Y_hat.resize(sz,1);
 		} else {
-			Y_hat.conservativeResize(Y_hat.rows(),imp_count+1);
+			if(Y_hat.rows() < sz) {
+				// need to zero-pad Y_hat
+				zero_pad_cplx_scalar(Y_hat, sz, Y_hat.cols()+1, false);
+				if(X_hat.rows() < sz && auth_count > 0) {
+					zero_pad_cplx_scalar(X_hat, sz, X_hat.cols(), false);
+				}
+			} else if(Y_hat.rows() > sz) {
+				// need to cut down Y_hat
+				rebuild_cplxmat_scalar(Y_hat, sz, false);
+				Y_hat.conservativeResize(Y_hat.rows(),imp_count+1);
+				if(X_hat.rows() < sz && auth_count > 0) {
+					rebuild_cplxmat_scalar(X_hat, sz, false);
+				}
+			} else {
+				Y_hat.conservativeResize(Y_hat.rows(),imp_count+1);
+			}
 		}
 
 		TCplx *arrayd = (signal_hat.template data());
@@ -527,7 +562,7 @@ void filter<T>::ifft_scalar(T &sig, MatCplx const& sig_freq) {
 
  */
 template <class T>
-int filter<T>::get_rank(TMat const& signal) {
+int filter<T>::get_rank_scalar(TMat const& signal) {
 	int rank = 0;
 	Eigen::JacobiSVD<TMat> svd(signal,0);
 	TVec vals = svd.singularValues();
@@ -557,7 +592,7 @@ int filter<T>::get_rank(TMat const& signal) {
 
  */
 template <class T>
-void filter<T>::zero_pad(T &signal, const int siz1, const int siz2, bool center) {
+void filter<T>::zero_pad_scalar(T &signal, const int siz1, const int siz2, bool center) {
 	int M = signal.rows();
 	int N = signal.cols();
 
@@ -618,6 +653,137 @@ void filter<T>::zero_pad(T &signal, const int siz1, const int siz2, bool center)
 		signal = temp;
 	}
 }
+
+
+
+/**
+
+  rebuild complex matrix to adjust for smaller or larger size (pull original out of fourier domain, and put back into fourier domain at adjusted size)
+
+  @author   Jonathon M. Smereka
+  @version  06-27-2013
+
+  @param    signal		the 1-d/2-d sample to be checked
+  @param	siz			final number of rows for the output
+  @param	center		pad/cut so the sample is centered
+
+  @return   passed by ref to return sample in selected size window
+
+*/
+template <class T>
+void filter<T>::rebuild_cplxmat_scalar(MatCplx &signal, const int siz, bool center) {
+	int M = signal.rows();
+	int N = signal.cols();
+
+	if(M != siz) {
+		// pull each column out of fourier domain, adjust size, then put back into fourier domain
+		int oldRow, oldCol, newRow, newCol;
+		if(M < siz) {
+			oldRow = input_row; newRow = input_row * 2;
+			oldCol = input_col; newCol = input_col * 2;
+		} else { // M > siz1;
+			oldRow = input_row * 2; newRow = input_row;
+			oldCol = input_col * 2; newCol = input_col;
+		}
+
+		MatCplx temp(siz,N), tempvec2(siz,1); // the final result
+		MatCplx tempvec(M,1), sig1(oldRow,oldCol), sig2(newRow,newCol);
+		T sig1_spat(oldRow,oldCol);
+
+		for(int i=0; i<signal.rows(); i++) {
+			tempvec = signal.block(0,i,M,1);
+			sig1 = Eigen::Map<MatCplx>(tempvec.data(), oldRow, oldCol); // map to 2d/1d size
+			ifft_scalar(sig1_spat, sig1); // put int spatial domain
+			zero_pad_scalar(sig1_spat, newRow, newCol, center); // zero-pad or cut
+			fft_scalar(sig1_spat, sig2, newRow, newCol);  // sig2 has the correct sized sample
+			tempvec2 = Eigen::Map<MatCplx>(sig2.data(), siz, 1); // vectorize
+			temp.block(0,i,siz,1) = tempvec2;
+		}
+		signal.resize(siz, N);
+		signal = temp;
+	}
+}
+
+
+
+/**
+
+  Zero pad or crop the sample based on the input size parameters, simply using conserative resize won't work (uninitialized matrix elements)
+
+  @author   Jonathon M. Smereka
+  @version  04-13-2013
+
+  @param    signal		the 1-d/2-d sample to be checked
+  @param	siz1		final number of rows for the output
+  @param	siz2		final number of columns for the output
+  @param	center		pad/cut so the sample is centered
+
+  @return   passed by ref to return sample in selected size window
+
+ */
+template <class T>
+void filter<T>::zero_pad_cplx_scalar(MatCplx &signal, const int siz1, const int siz2, bool center) {
+	int M = signal.rows();
+	int N = signal.cols();
+
+	if(M != siz1 || N != siz2) {
+		// copy data into manipulative matrix
+		MatCplx temp(siz1,siz2); // temporary variable
+
+		bool nocut = false;
+		int str = 0, stc = 0; // starting row and column (center or top corner)
+
+		// Perform any cropping operations
+		if(siz1 < M || siz2 < N) {
+			if(siz1 < M && siz2 < N) { // crop both rows and columns
+				if(center) { // cut from the center
+					str = floor(abs(siz1 - M)/2);
+					stc = floor(abs(siz2 - N)/2);
+				}
+				temp = signal.block(str,stc,siz1,siz2);
+				M = siz1; N = siz2;
+			} else if(siz1 < M) {
+				if(center) { // cut from the center
+					str = floor(abs(siz1 - M)/2);
+				}
+				temp.setZero(siz1,std::max(N,siz2));
+				M = siz1;
+				temp.block(0,0,siz1,N) = signal.block(str,stc,siz1,N);
+			} else if(siz2 < N) {
+				if(center) { // cut from the center
+					stc = floor(abs(siz2 - N)/2);
+				}
+				temp.setZero(std::max(M,siz1),siz2);
+				N = siz2;
+				temp.block(0,0,M,siz2) = signal.block(str,stc,M,siz2);
+			}
+		} else {
+			temp.setZero(siz1,siz2); nocut = true;
+		}
+		// Perform any padding operations
+		if(siz1 > M || siz2 > N) {
+			if(center) { // pad from the center
+				str = floor((siz1 - M)/2);
+				stc = floor((siz2 - N)/2);
+			}
+			if(siz1 > M && siz2 > N) { // pad both rows and columns
+				temp.conservativeResize(siz1,siz2);
+			} else if(siz1 > M) {
+				temp.conservativeResize(siz1,N);
+			} else if(siz2 > N) {
+				temp.conservativeResize(M,siz2);
+			}
+			if(nocut) {
+				temp.block(str,stc,M,N) = signal;
+			}
+		}
+		// resize signal
+		signal.resize(siz1,siz2);
+		signal.setZero(siz1,siz2);
+		signal = temp;
+	}
+}
+
 
 
 
