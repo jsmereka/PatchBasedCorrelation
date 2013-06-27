@@ -303,6 +303,9 @@ int main(int argc, char *argv[]) {
 					//EigShowImg(imgs[i]);
 					nontested = false; // only need to run test once
 				} else {
+					if(j == 1) {
+						thefilter.zeropadtrndata(true);
+					}
 					thefilter.add_auth(imgs[i]);
 				}
 			} // endif
@@ -318,6 +321,7 @@ int main(int argc, char *argv[]) {
 		}
 
 		// train
+		thefilter.zeropadtrndata(false);
 		std::cout << "\tTraining the Filter\n";
 		thefilter.trainfilter();
 
@@ -347,7 +351,7 @@ int main(int argc, char *argv[]) {
 	}
 	// Not limited to RowVector, testing just cause...
 	OTSDF<Eigen::RowVectorXf> thefiltervec(pow(10,-5), 1-pow(10,-5), 0.0); // vector of floats
-
+	thefiltervec.zeropadtrndata(false);
 	Eigen::RowVectorXf truesig(15); truesig << 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0;
 
 	/* 1D */
@@ -411,11 +415,12 @@ int main(int argc, char *argv[]) {
 	}
 
 	truesig << 1, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0, 0, 1, 0, 1;
+	thefiltervec.zeropadtrndata(true);
 	thefiltervec.add_auth(truesig);
 
 	truesig << 1, 1, 1, 1, 0, 1, 0, 1, 0, 0, 1, 1, 0, 1, 1;
 	thefiltervec.add_imp(truesig);
-
+	thefiltervec.zeropadtrndata(false);
 	thefiltervec.trainfilter();
 
 	truesig.resize(20);

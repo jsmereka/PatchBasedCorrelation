@@ -46,6 +46,8 @@ public:
   TODO: adjust framework for ZACF (note: not programming ZACF, just adjusting the base abstract class to handle it accordingly)
   TODO: vector implementations for filters
   TODO: 3D filters (probably going to do this last cause ActionMach is essentially optical flow, also 3D adds a new level of memory management)
+  TODO: rolling queue for online learning
+  TODO: operators (at least =, so you can transfer filters or whatever)
 
   TODO: fix Naresh's 'fusion_matrix_multiply' and 'fusion_matrix_inverse' functions (maybe they'll be faster than eigen's inverse since we know the structure of the matrix we are inverting, but part of me doubts it cause i'm not that good yet)
 
@@ -372,18 +374,11 @@ void filter<T>::addtofourier_scalar(T &signal, bool auth) {
 		if(auth_count == 0) {
 			X_hat.resize(sz,1);
 		} else {
-			// TODO: might replace zero_pad with rebuild_cplxmat...need to see if needed or not
-			if(X_hat.rows() < sz) {
-				// need to zero-pad X_hat
-				zero_pad_cplx_scalar(X_hat, sz, X_hat.cols()+1, false);
-				if(Y_hat.rows() < sz && imp_count > 0) {
-					zero_pad_cplx_scalar(Y_hat, sz, Y_hat.cols(), false);
-				}
-			} else if(X_hat.rows() > sz) {
-				// need to cut down X_hat
+			if(X_hat.rows() != sz) {
+				// need to zero-pad or cut down X_hat
 				rebuild_cplxmat_scalar(X_hat, sz, false);
 				X_hat.conservativeResize(X_hat.rows(),auth_count+1);
-				if(Y_hat.rows() < sz && imp_count > 0) {
+				if(Y_hat.rows() != sz && imp_count > 0) {
 					rebuild_cplxmat_scalar(Y_hat, sz, false);
 				}
 			} else {
@@ -402,17 +397,11 @@ void filter<T>::addtofourier_scalar(T &signal, bool auth) {
 		if(imp_count == 0) {
 			Y_hat.resize(sz,1);
 		} else {
-			if(Y_hat.rows() < sz) {
-				// need to zero-pad Y_hat
-				zero_pad_cplx_scalar(Y_hat, sz, Y_hat.cols()+1, false);
-				if(X_hat.rows() < sz && auth_count > 0) {
-					zero_pad_cplx_scalar(X_hat, sz, X_hat.cols(), false);
-				}
-			} else if(Y_hat.rows() > sz) {
-				// need to cut down Y_hat
+			if(Y_hat.rows() != sz) {
+				// need to zero-pad or cut down Y_hat
 				rebuild_cplxmat_scalar(Y_hat, sz, false);
 				Y_hat.conservativeResize(Y_hat.rows(),imp_count+1);
-				if(X_hat.rows() < sz && auth_count > 0) {
+				if(X_hat.rows() != sz && auth_count > 0) {
 					rebuild_cplxmat_scalar(X_hat, sz, false);
 				}
 			} else {
@@ -679,25 +668,43 @@ void filter<T>::rebuild_cplxmat_scalar(MatCplx &signal, const int siz, bool cent
 		// pull each column out of fourier domain, adjust size, then put back into fourier domain
 		int oldRow, oldCol, newRow, newCol;
 		if(M < siz) {
-			oldRow = input_row; newRow = input_row * 2;
-			oldCol = input_col; newCol = input_col * 2;
+			if(input_row > 1) {
+				oldRow = input_row; newRow = input_row * 2;
+			} else {
+				oldRow = 1; newRow = 1;
+			}
+			if(input_col > 1) {
+				oldCol = input_col; newCol = input_col * 2;
+			} else {
+				oldCol = 1; newCol = 1;
+			}
 		} else { // M > siz1;
-			oldRow = input_row * 2; newRow = input_row;
-			oldCol = input_col * 2; newCol = input_col;
+			if(input_row > 1) {
+				oldRow = input_row * 2; newRow = input_row;
+			} else {
+				oldRow = 1; newRow = 1;
+			}
+			if(input_col > 1) {
+				oldCol = input_col * 2; newCol = input_col;
+			} else {
+				oldCol = 1; newCol = 1;
+			}
 		}
 
-		MatCplx temp(siz,N), tempvec2(siz,1); // the final result
-		MatCplx tempvec(M,1), sig1(oldRow,oldCol), sig2(newRow,newCol);
+		MatCplx temp(siz,N); // the final result
+		MatCplx sig1(oldRow,oldCol), tempvec(newRow,newCol);
 		T sig1_spat(oldRow,oldCol);
 
-		for(int i=0; i<signal.rows(); i++) {
-			tempvec = signal.block(0,i,M,1);
-			sig1 = Eigen::Map<MatCplx>(tempvec.data(), oldRow, oldCol); // map to 2d/1d size
-			ifft_scalar(sig1_spat, sig1); // put int spatial domain
+		for(int i=0; i<N; i++) {
+			sig1 = Eigen::Map<MatCplx>(signal.col(i).data(), oldRow, oldCol); // map to 2d size
+			sig1_spat.resize(oldRow,oldCol);
+			ifft_scalar(sig1_spat, sig1); // put into spatial domain
 			zero_pad_scalar(sig1_spat, newRow, newCol, center); // zero-pad or cut
-			fft_scalar(sig1_spat, sig2, newRow, newCol);  // sig2 has the correct sized sample
-			tempvec2 = Eigen::Map<MatCplx>(sig2.data(), siz, 1); // vectorize
-			temp.block(0,i,siz,1) = tempvec2;
+			fft_scalar(sig1_spat, tempvec, newRow, newCol);  // sig2 has the correct sized sample
+			TCplx *arrayd = (tempvec.template data());
+			for(int j=0; j<siz; j++) {
+				temp(j,i) = arrayd[j]; // same thing as Map, but a bit cheaper memory-wise (don't need to map to separate vector, as i can't map to a block)
+			}
 		}
 		signal.resize(siz, N);
 		signal = temp;
@@ -814,6 +821,14 @@ typename filter<T>::VecCplx filter<T>::tradeoff_scalar(double alpha, double beta
 			if(input_col > 1) {
 				d *= 2;
 			}
+		}
+		if(X_hat.rows() != d && auth_count > 0) {
+			// need to zero-pad or cut down X_hat
+			rebuild_cplxmat_scalar(X_hat, d, false);
+		}
+		if(Y_hat.rows() != d && imp_count > 0) {
+			// need to zero-pad or cut down Y_hat
+			rebuild_cplxmat_scalar(Y_hat, d, false);
 		}
 
 		/* Compute T matrix, labeled as TT cause T is the template type */
