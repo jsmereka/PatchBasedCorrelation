@@ -128,9 +128,9 @@ void OTSDF<T>::trainfilter() {
 
 			if(acount == 0) { // set U vector separating classes and constraining peak
 				U.real().setZero();
-			} else if(icount > 0) {
+			} else if(acount > 0 && icount > 0) {
 				for(int i=acount; i<N; i++) {
-					U(i).real() = (typename filter<T>::TVar)(-1.0);
+					U(i) = std::complex<typename filter<T>::TVar>(-1.0,0.0);
 				}
 			}
 

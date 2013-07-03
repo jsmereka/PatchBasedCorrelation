@@ -10,28 +10,6 @@
 #include <fftw3.h>
 
 
-// Define data structure for images in the correlation filter library.
-class CDataStruct{
-public:
-	float *data;
-	std::complex<float> *data_freq;
-	int num_data;
-	int num_channels;
-	std::vector<float*> ptr_data;
-	std::vector<std::complex <float> *> ptr_data_freq;
-	Eigen::VectorXi siz_data;
-	Eigen::VectorXi siz_data_freq;
-	float *label;
-	int num_elements_freq;
-
-	CDataStruct() { }
-
-	~CDataStruct(){
-		delete[] data;
-		delete[] data_freq;
-	}
-};
-
 /**
 
   Base filter class for 1-d and 2-d data samples
@@ -71,6 +49,9 @@ private:
 	int get_rank_scalar(TMat const& signal);		// get the matrix rank and return it as an int
 	void addtofourier_scalar(T &signal, bool auth);	// adds the data sample to X_hat/Y_hat
 
+	void computePSRplane(T &plane);					// compute PSR plane
+	void computePCEplane(T &plane);					// compute PCE plane
+
 protected:
 	TMat XY;										// matrix of samples (authentic and impostor) in the spatial domain
 	MatCplx X_hat, Y_hat;							// matrix of samples (authentic and impostor) in the frequency domain
@@ -87,6 +68,10 @@ protected:
 	bool asm_onlytrueclass;							// when calculating ASM, only use the true class images, otherwise use all images
 	int whitenimgs;									// whiten the average spectrum of the data samples, 0 = off (default), 1 = all samples, 2 = only authentic samples, 3 = only impostor samples
 	bool trainedflag;								// simple flag to see if there is a trained filter to be used
+
+	bool psrplane;									// compute PSR of the plane based on defined window (useful for multiple targets)
+	bool pceplane;									// compute PCE of the plane based on defined window (useful for single target)
+	int psr_outwin, psr_inwin;						// PSR defined outer and inner windows
 
 	void zero_pad_scalar(T &signal, const int siz1, const int siz2, bool center); // resizes sample window (zero pad/crop) based on input size
 	void zero_pad_cplx_scalar(MatCplx &signal, const int siz1, const int siz2, bool center); // resizes sample window (zero pad/crop) based on input size
@@ -106,6 +91,7 @@ public:
 		docomputerank = true; cutfromcenter = false;
 		cleanupaftertrain = true; zeropadtrnimgs = false;
 		whitenimgs = 0; trainedflag = false; asm_onlytrueclass = true;
+		psrplane = false; pceplane = false; psr_outwin = 10; psr_inwin = 3;
 	}
 	virtual ~filter() {
 		// resize to zero to release memory
@@ -125,6 +111,9 @@ public:
 	inline void zeropadtrndata(bool tmp) { zeropadtrnimgs = tmp; } // set whether to zeropad the training samples to prevent effects of circular correlation during training
 	inline void whitenspectrum(int tmp) { whitenimgs = tmp; } // whiten the average spectrum of the training samples (results in sharper peaks when compared against training images, though is less robust to distortion)
 	inline void setASM_trueclass(bool tmp) { asm_onlytrueclass = tmp; } // compute the ASM criterion with only the true class images
+	inline void return_PSRplane(bool tmp) { psrplane = tmp; if(pceplane) { pceplane = false; } } // after application, correlation plane returned is modified to reflect best PSR (default window)
+	inline void return_PSRplane(bool tmp, int outer_win, int inner_win) { psrplane = tmp; if(pceplane) { pceplane = false; } psr_outwin = outer_win; psr_inwin = inner_win; } // return PSR plane with defined window
+	inline void return_PCEplane(bool tmp) { pceplane = tmp; if(psrplane) { psrplane = false; } } // after application, correlation plane returned is modified to reflect best PCE
 
 	virtual void trainfilter() = 0;						// train the filter - this varies with each filter type
 
@@ -199,20 +188,75 @@ T filter<T>::applyfilter(T scene) {
 	T simplane(fftszN,fftszM);
 	if(trainedflag) {
 		// put scene in freq domain and pad accordingly to prevent circular correlation
-		typename filter<T>::MatCplx scene_freq(fftszN, fftszM), Filt_freq(fftszN, fftszM);
+		MatCplx scene_freq(fftszN, fftszM), Filt_freq(fftszN, fftszM);
 		T Filt = H;
 
-		filter<T>::zero_pad_scalar(scene, fftszN, fftszM, cutfromcenter);
-		filter<T>::fft_scalar(scene, scene_freq, fftszN, fftszM);
-		filter<T>::zero_pad_scalar(Filt, fftszN, fftszM, cutfromcenter);
-		filter<T>::fft_scalar(Filt, Filt_freq, fftszN, fftszM);
+		zero_pad_scalar(scene, fftszN, fftszM, cutfromcenter);
+		fft_scalar(scene, scene_freq, fftszN, fftszM);
+		zero_pad_scalar(Filt, fftszN, fftszM, cutfromcenter);
+		fft_scalar(Filt, Filt_freq, fftszN, fftszM);
 
 		scene_freq = scene_freq.cwiseProduct(Filt_freq);
 
-		filter<T>::ifft_scalar(simplane, scene_freq);
-		filter<T>::zero_pad_scalar(simplane, N, M, true);
+		ifft_scalar(simplane, scene_freq);
+		zero_pad_scalar(simplane, N, M, true);
+
+		if(psrplane) {
+			computePSRplane(simplane);
+		} else if(pceplane) {
+			computePCEplane(simplane);
+		}
 	}
 	return simplane;
+}
+
+
+
+/**
+
+  Computes the Peak-to-Sidelobe Ratio (PSR) over the entire plane (based on defined outer and inner window)
+
+  Effective for multiple targets in a scene
+
+  PSR = (peak - mean(plane)) / std(plane)
+
+  @author   Jonathon M. Smereka
+  @version  07-03-2013
+
+  @return   the correlation plane
+
+ */
+template <class T>
+void filter<T>::computePSRplane(T &plane) {
+	//
+}
+
+
+
+/**
+
+  Computes the Peak Correlation Energy (PCE) ratio over the entire plane
+
+  Effective for a single target in a scene
+
+  PCE = gmax / SQRT( SUM( |plane|^2 - |gmax|^2  ) )
+
+  @author   Jonathon M. Smereka
+  @version  07-03-2013
+
+  @return   the correlation plane
+
+ */
+template <class T>
+void filter<T>::computePCEplane(T &plane) {
+	TVar N = (TVar)(plane.rows()*plane.cols());
+	TVar plane_norm = sqrt(plane.cwiseAbs2().sum());
+	TVar plane_mean = plane.array().sum()/N;
+	plane.array() -= plane_mean;
+	plane /= plane_norm;
+	plane_mean = plane.array().sum()/N; // need mean again to get standard deviation
+	TVar plane_std = sqrt((plane.array() - plane_mean).square().sum()*N);
+	plane /= plane_std;
 }
 
 
