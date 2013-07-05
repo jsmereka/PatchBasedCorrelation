@@ -201,6 +201,12 @@ T filter<T>::applyfilter(T scene) {
 		ifft_scalar(simplane, scene_freq);
 		zero_pad_scalar(simplane, N, M, true);
 
+		// normalize plane
+		TVar plane_norm = sqrt(simplane.cwiseAbs2().sum());
+		TVar plane_mean = simplane.array().sum()/(N*M);
+		simplane.array() -= plane_mean;
+		simplane /= plane_norm;
+
 		if(psrplane) {
 			computePSRplane(simplane);
 		} else if(pceplane) {
@@ -250,10 +256,7 @@ void filter<T>::computePSRplane(T &plane) {
 template <class T>
 void filter<T>::computePCEplane(T &plane) {
 	TVar N = (TVar)(plane.rows()*plane.cols());
-	TVar plane_norm = sqrt(plane.cwiseAbs2().sum());
 	TVar plane_mean = plane.array().sum()/N;
-	plane.array() -= plane_mean;
-	plane /= plane_norm;
 	plane_mean = plane.array().sum()/N; // need mean again to get standard deviation
 	TVar plane_std = sqrt((plane.array() - plane_mean).square().sum()*N);
 	plane /= plane_std;
@@ -891,12 +894,20 @@ typename filter<T>::VecCplx filter<T>::tradeoff_scalar(double alpha, double beta
 		if(gamma != 0.0 && auth_count > 0) { // if only gamma, then filter = MSESDF (constrained MACH)
 			if(asm_onlytrueclass) {
 				// diagonal matrix S = 1/(Nx*d) * SUM{ (Xi - mean(Xi)) * Conj(Xi - mean(Xi)) }
-				TT.noalias() = (X_hat.colwise() - X_hat.rowwise().mean()).cwiseProduct((X_hat.colwise() - X_hat.rowwise().mean()).conjugate()).lazyProduct(vec_of_ones);
+				TT.noalias() = (X_hat.colwise() - X_hat.rowwise().mean()).cwiseProduct((X_hat.colwise() - X_hat.rowwise().mean()).conjugate()).lazyProduct(vec_of_ones.block(0,0,auth_count,1));
 				TT.real() = TT.real() * (TVar)(gamma/(N*d));
 				TT.imag() = TT.imag() * (TVar)(gamma/(N*d));
 			} else {
 				// diagonal matrix S = 1/(N*d) * SUM{ (Zi - mean(Zi)) * Conj(Zi - mean(Zi)) }
-				TT.noalias() = (X_hat.colwise() - X_hat.rowwise().mean()).cwiseProduct((X_hat.colwise() - X_hat.rowwise().mean()).conjugate()).lazyProduct(vec_of_ones);
+				MatCplx AllSamples;
+				if(auth_count > 0 && imp_count > 0) {
+					AllSamples.resize(d,N); AllSamples << X_hat, Y_hat;
+				} else if(auth_count > 0) {
+					AllSamples = X_hat;
+				} else if(imp_count > 0) {
+					AllSamples = Y_hat;
+				}
+				TT.noalias() = (AllSamples.colwise() - AllSamples.rowwise().mean()).cwiseProduct((AllSamples.colwise() - AllSamples.rowwise().mean()).conjugate()).lazyProduct(vec_of_ones);
 				TT.real() = TT.real() * (TVar)(gamma/(N*d));
 				TT.imag() = TT.imag() * (TVar)(gamma/(N*d));
 			}
